@@ -28,17 +28,58 @@ const hospitalBedSchema = new mongoose.Schema({
     required: true,
     default: 0,
     min: 0
-  }
+  },
+  // New: Track individual beds
+  beds: [{
+    number: Number,
+    status: {
+      type: String,
+      enum: ['available', 'occupied', 'maintenance'],
+      default: 'available'
+    },
+    patientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Patient',
+      default: null
+    },
+    admissionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'HospitalAdmission',
+      default: null
+    }
+  }]
 }, { timestamps: true });
 
-// Virtual to calculate available beds (but we'll keep it in sync manually for consistency)
-hospitalBedSchema.virtual('calculatedAvailable').get(function() {
+// Virtual to calculate available beds
+hospitalBedSchema.virtual('calculatedAvailable').get(function () {
+  if (this.beds && this.beds.length > 0) {
+    return this.beds.filter(b => b.status === 'available').length;
+  }
   return Math.max(0, this.total - this.occupied);
 });
 
-// Pre-save hook to ensure available = total - occupied
-hospitalBedSchema.pre('save', function(next) {
-  this.available = Math.max(0, this.total - this.occupied);
+// Pre-save hook to ensure consistency
+hospitalBedSchema.pre('save', function (next) {
+  // Migration/Initialization: If beds array is empty but total > 0, generate beds
+  if (this.total > 0 && (!this.beds || this.beds.length === 0)) {
+    const newBeds = [];
+    for (let i = 1; i <= this.total; i++) {
+      // Mark first 'occupied' count as occupied, rest available
+      const status = i <= this.occupied ? 'occupied' : 'available';
+      newBeds.push({ number: i, status });
+    }
+    this.beds = newBeds;
+  }
+  // If beds array exists, sync counts FROM the array
+  else if (this.beds && this.beds.length > 0) {
+    this.total = this.beds.length;
+    this.occupied = this.beds.filter(b => b.status === 'occupied').length;
+    this.available = this.beds.filter(b => b.status === 'available').length;
+  }
+  // Fallback (shouldn't happen often if we use array): strict math
+  else {
+    this.available = Math.max(0, this.total - this.occupied);
+  }
   next();
 });
 

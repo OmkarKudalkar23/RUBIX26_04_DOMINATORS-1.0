@@ -34,7 +34,7 @@ const HospitalInventoryTxn = require('../models/HospitalInventoryTxn');
 // MongoDB connection
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://chulbuleMishraJi:yHTcnZwQ5WVBJiC7@chulbulemishraji.8mcwh5g.mongodb.net/mumbai_hacks_db";
 
-const HOSPITAL_EMAIL = 'hospital@test.com';
+const HOSPITAL_EMAIL = 'admin@cityhospital.com';
 const HOSPITAL_PASSWORD = 'Password@123';
 
 async function seedHospitalDashboard() {
@@ -69,7 +69,7 @@ async function seedHospitalDashboard() {
     console.log('👤 Creating hospital user...');
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(HOSPITAL_PASSWORD, salt);
-    
+
     const hospitalUser = new User({
       name: "City General Hospital",
       email: HOSPITAL_EMAIL,
@@ -165,7 +165,7 @@ async function seedHospitalDashboard() {
     // 4. Create Doctor Slots
     console.log('👨‍⚕️ Creating doctor slots...');
     const today = new Date().toISOString().split('T')[0]; // Format: YYYY-MM-DD
-    
+
     const doctorSlots = [
       {
         doctorName: "Dr. Sarah Mitchell",
@@ -476,6 +476,89 @@ async function seedHospitalDashboard() {
     console.log(`   - dr.sarah.mitchell@cityhospital.com`);
     console.log(`   - dr.james.wilson@cityhospital.com`);
     console.log(`   - dr.emily.chen@cityhospital.com`);
+
+    // 12. Link existing doctors with matching domain and ensure slots exist
+    console.log('🔄 Syncing existing doctors with matching domain...');
+    const domain = HOSPITAL_EMAIL.split('@')[1]; // e.g., cityhospital.com
+    // Regex to match exact domain at end of email
+    const domainRegex = new RegExp(`@${domain}$`, 'i');
+
+    // Find all users who are doctors and have this email domain
+    const existingDoctors = await User.find({
+      role: 'doctor',
+      email: { $regex: domainRegex }
+    });
+
+    console.log(`  Found ${existingDoctors.length} doctors with domain @${domain}`);
+
+    const slotDates = [];
+    const seedToday = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(seedToday);
+      d.setDate(seedToday.getDate() + i);
+      slotDates.push(d.toISOString().split('T')[0]);
+    }
+    const defaultSyncSlots = [
+      { time: "09:00", status: "available" },
+      { time: "09:30", status: "available" },
+      { time: "10:00", status: "available" },
+      { time: "10:30", status: "available" },
+      { time: "11:00", status: "available" },
+      { time: "11:30", status: "available" },
+      { time: "12:00", status: "available" },
+      { time: "14:00", status: "available" },
+      { time: "14:30", status: "available" },
+      { time: "15:00", status: "available" },
+      { time: "15:30", status: "available" },
+      { time: "16:00", status: "available" }
+    ];
+
+    for (const docUser of existingDoctors) {
+      // Link to this new hospital
+      docUser.hospitalId = hospital._id;
+
+      // Ensure Doctor profile exists
+      let docProfile = await Doctor.findOne({ userId: docUser._id });
+      if (!docProfile) {
+        console.log(`  Creating missing profile for ${docUser.name}`);
+        docProfile = await Doctor.create({
+          userId: docUser._id,
+          name: docUser.name,
+          email: docUser.email,
+          hospitalId: hospital._id,
+          specialization: 'General',
+          department: 'General'
+        });
+        docUser.doctorId = docProfile._id;
+      } else {
+        // Update link in profile too
+        docProfile.hospitalId = hospital._id;
+        await docProfile.save();
+      }
+      await docUser.save();
+
+      // Ensure Slots exist
+      // Check if slots exist for today, if not, create for week
+      const hasSlots = await HospitalDoctorSlot.findOne({
+        hospitalId: hospital._id,
+        doctorName: docUser.name
+      });
+
+      if (!hasSlots) {
+        console.log(`  Generating slots for ${docUser.name}`);
+        for (const date of slotDates) {
+          await HospitalDoctorSlot.create({
+            hospitalId: hospital._id,
+            doctorName: docUser.name,
+            specialization: docProfile.specialization || 'General',
+            department: docProfile.department || 'General',
+            date: date,
+            slots: defaultSyncSlots
+          });
+        }
+      }
+    }
+    console.log('✅ Sync complete');
 
   } catch (error) {
     console.error('❌ Error seeding hospital dashboard:', error);

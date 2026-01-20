@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { Chatbot } from "./Chatbot";
@@ -17,12 +17,23 @@ import {
   changeHospitalPassword,
   getEarlyWarning,
   getHospitalLoad,
+  checkInOpdPatient,
+  getOpdQueue,
+  updateOpdQueueEntry,
+  getHospitalDoctors,
+  createHospitalBed,
+  createHospitalDoctor,
+  createHospitalStaff,
+  createHospitalAppointment,
+  createHospitalSurgeAlert,
   type BedData,
   type DoctorSlot,
   type StaffMember,
   type SurgeAlert,
   type EnvironmentalData,
   type HospitalAppointment,
+  type OpdCheckIn,
+  type HospitalDoctor,
 } from "../services/api";
 import {
   User,
@@ -93,6 +104,7 @@ import {
   LineChart,
   Line,
 } from "recharts";
+import { translations } from "../utils/translations";
 
 interface HospitalDashboardProps {
   onLogout: () => void;
@@ -131,6 +143,27 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [showUpdateProfileModal, setShowUpdateProfileModal] = useState(false);
   const [showAlertConfigModal, setShowAlertConfigModal] = useState(false);
 
+  // Manual Entry Modals
+  const [showAddAppointmentModal, setShowAddAppointmentModal] = useState(false);
+  const [showAddAlertModal, setShowAddAlertModal] = useState(false);
+
+  // Manual Appointment Form
+  const [manualAppointmentForm, setManualAppointmentForm] = useState({
+    patientName: "",
+    doctorName: "",
+    department: "",
+    date: new Date().toISOString().split('T')[0],
+    time: "10:00",
+    type: "OPD"
+  });
+
+  // Manual Alert Form
+  const [manualAlertForm, setManualAlertForm] = useState({
+    type: "epidemic",
+    message: "",
+    severity: "high"
+  });
+
   // Alert Configuration
   const [alertConfig, setAlertConfig] = useState({
     aqiThreshold: 300,
@@ -161,8 +194,131 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [surgeAlerts, setSurgeAlerts] = useState<SurgeAlert[]>([]);
   const [environmentalData, setEnvironmentalData] = useState<EnvironmentalData | null>(null);
   const [appointments, setAppointments] = useState<HospitalAppointment[]>([]);
+  const [opdQueue, setOpdQueue] = useState<OpdCheckIn[]>([]);
+  const [hospitalDoctors, setHospitalDoctors] = useState<HospitalDoctor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // OPD Check-in form state
+  const [opdForm, setOpdForm] = useState({
+    patientName: '',
+    department: '',
+    doctorName: '',
+    visitType: 'OPD' as 'OPD' | 'Follow-up',
+    priority: 'normal' as 'low' | 'normal' | 'high' | 'critical'
+  });
+
+  // New Resource Forms State
+  const [newBedForm, setNewBedForm] = useState({ type: "", total: 10 });
+
+  const [newDoctorForm, setNewDoctorForm] = useState({
+    name: "",
+    email: "",
+    specialization: "",
+    department: ""
+  });
+
+  const [newStaffForm, setNewStaffForm] = useState({
+    name: "",
+    role: "Nurse" as "Nurse" | "Technician" | "Support" | "Admin",
+    department: "",
+    shift: "Morning" as "Morning" | "Evening" | "Night"
+  });
+
+  // New Resource Handlers
+  const handleAddBedSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newBed = await createHospitalBed({ ...newBedForm, type: newBedForm.type.trim() });
+      setBeds(prev => [...prev, newBed]);
+      toast.success("New ward added successfully");
+      setShowAddBedModal(false);
+      setNewBedForm({ type: "", total: 10 });
+    } catch (error: any) {
+      console.error("Error adding ward:", error);
+      toast.error(error.message || "Failed to add ward");
+    }
+  };
+
+  const handleAddDoctorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newDoc = await createHospitalDoctor(newDoctorForm);
+      setHospitalDoctors(prev => [...prev, newDoc]);
+      // Trigger a refresh of doctor slots to generate the new slots
+      getHospitalDoctorSlots().then(slots => setDoctorSlots(slots));
+
+      toast.success("Doctor added successfully. Schedule initialized.");
+      setShowAddDoctorModal(false);
+      setNewDoctorForm({ name: "", email: "", specialization: "", department: "" });
+    } catch (error: any) {
+      console.error("Error adding doctor:", error);
+      toast.error(error.message || "Failed to add doctor");
+    }
+  };
+
+  const handleAddStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newStaffMember = await createHospitalStaff({
+        ...newStaffForm,
+        status: 'active'
+      });
+      setStaff(prev => [...prev, newStaffMember]);
+      toast.success("Staff member added successfully");
+      setShowAddStaffModal(false);
+      setNewStaffForm({
+        name: "",
+        role: "Nurse",
+        department: "",
+        shift: "Morning"
+      });
+    } catch (error: any) {
+      toast.error(error.message || "Failed to add staff");
+    }
+  };
+
+  const handleCreateAppointment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newAppt = await createHospitalAppointment(manualAppointmentForm);
+      setAppointments(prev => [...prev, newAppt]);
+      toast.success("Appointment scheduled successfully");
+      setShowAddAppointmentModal(false);
+      // Reset form
+      setManualAppointmentForm({
+        patientName: "",
+        doctorName: "",
+        department: "",
+        date: new Date().toISOString().split('T')[0],
+        time: "10:00",
+        type: "OPD"
+      });
+    } catch (error: any) {
+      console.error("Error scheduling appointment:", error);
+      toast.error(error.message || "Failed to schedule appointment");
+    }
+  };
+
+  const handleBroadcastAlert = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newAlert = await createHospitalSurgeAlert(manualAlertForm);
+      setSurgeAlerts(prev => [...prev, newAlert]);
+      toast.success("Surge alert broadcasted successfully");
+      setShowAddAlertModal(false);
+      setManualAlertForm({
+        type: "epidemic",
+        message: "",
+        severity: "high"
+      });
+    } catch (error: any) {
+      console.error("Error creating alert:", error);
+      toast.error(error.message || "Failed to broadcast alert");
+    }
+  };
+  // Translations helper
+  const t = translations[language as keyof typeof translations] || translations['English'];
 
   // Fetch all data on mount
   useEffect(() => {
@@ -178,6 +334,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           surgeAlertsData,
           environmentDataResp,
           appointmentsData,
+          opdQueueData,
+          hospitalDoctorsData,
           earlyWarningData,
           hospitalLoadData
         ] = await Promise.allSettled([
@@ -187,6 +345,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           getHospitalSurgeAlerts(),
           getHospitalEnvironment(),
           getHospitalAppointments(),
+          getOpdQueue(),
+          getHospitalDoctors(),
           getEarlyWarning('Mumbai').catch(() => null), // Default to Mumbai
           getHospitalLoad('Mumbai').catch(() => null) // Default to Mumbai
         ]);
@@ -194,6 +354,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         setBeds(bedsData.status === 'fulfilled' ? bedsData.value : []);
         setDoctorSlots(doctorSlotsData.status === 'fulfilled' ? doctorSlotsData.value : []);
         setStaff(staffData.status === 'fulfilled' ? staffData.value : []);
+        setOpdQueue(opdQueueData.status === 'fulfilled' ? opdQueueData.value : []);
+        setHospitalDoctors(hospitalDoctorsData.status === 'fulfilled' ? hospitalDoctorsData.value : []);
 
         // Merge surge alerts with early warning alerts
         const allSurgeAlerts: SurgeAlert[] = [];
@@ -310,26 +472,34 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     }
   };
 
-  const handleOccupyBed = async (bedId: string) => {
+  const handleOccupyBed = async (bed: any, bedNumber?: number) => {
     try {
-      const updatedBed = await updateHospitalBed(bedId, { action: "occupy" });
+      const payload: any = { action: "occupy" };
+      if (bedNumber !== undefined) {
+        payload.bedNumber = bedNumber;
+      }
+      const updatedBed = await updateHospitalBed(bed.id, payload);
       setBeds((prevBeds) =>
-        prevBeds.map((b) => (b.id === bedId ? updatedBed : b))
+        prevBeds.map((b) => (b.id === bed.id ? updatedBed : b))
       );
-      toast.success("Bed occupied successfully");
+      toast.success(bedNumber ? `Bed #${bedNumber} occupied` : "Bed occupied successfully");
     } catch (error: any) {
       console.error("Error occupying bed:", error);
       toast.error(error.message || "Failed to occupy bed");
     }
   };
 
-  const handleReleaseBed = async (bedId: string) => {
+  const handleReleaseBed = async (bed: any, bedNumber?: number) => {
     try {
-      const updatedBed = await updateHospitalBed(bedId, { action: "release" });
+      const payload: any = { action: "release" };
+      if (bedNumber !== undefined) {
+        payload.bedNumber = bedNumber;
+      }
+      const updatedBed = await updateHospitalBed(bed.id, payload);
       setBeds((prevBeds) =>
-        prevBeds.map((b) => (b.id === bedId ? updatedBed : b))
+        prevBeds.map((b) => (b.id === bed.id ? updatedBed : b))
       );
-      toast.success("Bed released successfully");
+      toast.success(bedNumber ? `Bed #${bedNumber} released` : "Bed released successfully");
     } catch (error: any) {
       console.error("Error releasing bed:", error);
       toast.error(error.message || "Failed to release bed");
@@ -381,6 +551,64 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
       toast.error(error.message || "Failed to delete staff member");
     }
   };
+
+  // OPD Queue handlers
+  const handleOpdCheckIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const newEntry = await checkInOpdPatient(opdForm);
+      setOpdQueue((prev) => [...prev, newEntry]);
+      setOpdForm({
+        patientName: '',
+        department: '',
+        doctorName: '',
+        visitType: 'OPD',
+        priority: 'normal'
+      });
+      toast.success(`Patient ${opdForm.patientName} checked in successfully`);
+    } catch (error: any) {
+      console.error('Error checking in patient:', error);
+      toast.error(error.message || 'Failed to check in patient');
+    }
+  };
+
+  const handleUpdateOpdStatus = async (id: string, status: string) => {
+    try {
+      const updated = await updateOpdQueueEntry(id, { status });
+      setOpdQueue((prev) => prev.map((entry) => (entry.id === id ? updated : entry)));
+      toast.success(`Status updated to ${status}`);
+    } catch (error: any) {
+      console.error('Error updating status:', error);
+      toast.error(error.message || 'Failed to update status');
+    }
+  };
+
+  const handleUpdateOpdPriority = async (id: string, priority: string) => {
+    try {
+      const updated = await updateOpdQueueEntry(id, { priority });
+      setOpdQueue((prev) => prev.map((entry) => (entry.id === id ? updated : entry)));
+      toast.success(`Priority updated to ${priority}`);
+    } catch (error: any) {
+      console.error('Error updating priority:', error);
+      toast.error(error.message || 'Failed to update priority');
+    }
+  };
+
+  // Refresh OPD queue periodically
+  useEffect(() => {
+    if (activeTab !== 'opd') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const freshQueue = await getOpdQueue();
+        setOpdQueue(freshQueue);
+      } catch (error) {
+        console.error('Error refreshing OPD queue:', error);
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [activeTab]);
 
   // Handle change password - Now using API
   const handleChangePassword = async (e: React.FormEvent) => {
@@ -649,13 +877,14 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                 <nav className="space-y-2">
                   {[
-                    { id: "dashboard", icon: Home, label: "Dashboard" },
-                    { id: "beds", icon: BedDouble, label: "Bed Management" },
-                    { id: "doctors", icon: Stethoscope, label: "Doctor Slots" },
-                    { id: "staff", icon: Users, label: "Staff Allocation" },
-                    { id: "surge", icon: TrendingUp, label: "Surge Alerts" },
-                    { id: "appointments", icon: Calendar, label: "Appointments" },
-                    { id: "settings", icon: Settings, label: "Settings" },
+                    { id: "dashboard", icon: Home, label: t.dashboard },
+                    { id: "beds", icon: BedDouble, label: t.bedManagement },
+                    { id: "opd", icon: Clock, label: t.opdQueue },
+                    { id: "doctors", icon: Stethoscope, label: t.doctorSlots },
+                    { id: "staff", icon: Users, label: t.staffAllocation },
+                    { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
+                    { id: "appointments", icon: Calendar, label: t.appointments },
+                    { id: "settings", icon: Settings, label: t.settings },
                   ].map((item) => (
                     <button
                       key={item.id}
@@ -685,13 +914,14 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
       <aside className="hidden md:block fixed left-0 top-[73px] bottom-0 w-64 bg-gray-50 border-r border-gray-200 overflow-y-auto">
         <nav className="p-4 space-y-2">
           {[
-            { id: "dashboard", icon: Home, label: "Dashboard" },
-            { id: "beds", icon: BedDouble, label: "Bed Management" },
-            { id: "doctors", icon: Stethoscope, label: "Doctor Slots" },
-            { id: "staff", icon: Users, label: "Staff Allocation" },
-            { id: "surge", icon: TrendingUp, label: "Surge Alerts" },
-            { id: "appointments", icon: Calendar, label: "Appointments" },
-            { id: "settings", icon: Settings, label: "Settings" },
+            { id: "dashboard", icon: Home, label: t.dashboard },
+            { id: "beds", icon: BedDouble, label: t.bedManagement },
+            { id: "opd", icon: Clock, label: t.opdQueue },
+            { id: "doctors", icon: Stethoscope, label: t.doctorSlots },
+            { id: "staff", icon: Users, label: t.staffAllocation },
+            { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
+            { id: "appointments", icon: Calendar, label: t.appointments },
+            { id: "settings", icon: Settings, label: t.settings },
           ].map((item) => (
             <button
               key={item.id}
@@ -734,19 +964,19 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       className="text-2xl md:text-3xl uppercase tracking-wide"
                       style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                     >
-                      Dashboard Overview
+                      {t.dashboardOverview}
                     </h2>
                     <p className="text-sm text-gray-500 mt-1">
-                      Real-time hospital operations and analytics
+                      {t.dashboardSubtitle}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => toast.success("Data refreshed")}
+                      onClick={() => toast.success(t.dataRefreshed)}
                       className="px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
                       style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                     >
-                      Refresh
+                      {t.refresh}
                     </button>
                   </div>
                 </div>
@@ -764,7 +994,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </div>
                       <div className="flex-1">
                         <h3 className="text-lg mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                          High Pollution Alert
+                          {t.highPollutionAlert}
                         </h3>
                         <p className="text-sm text-gray-700 mb-3">
                           AQI: {environmentalData?.aqi || 0} - {environmentalData?.pollutionLevel || "N/A"} | Expect surge in respiratory patients
@@ -773,7 +1003,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           onClick={() => setActiveTab("surge")}
                           className="text-sm text-red-700 hover:underline flex items-center gap-1"
                         >
-                          View recommendations <ChevronRight className="w-4 h-4" />
+                          {t.viewRecommendations} <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
@@ -797,10 +1027,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </span>
                     </div>
                     <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                      Bed Occupancy
+                      {t.bedOccupancy}
                     </h3>
                     <p className="text-xs text-gray-600">
-                      {totalOccupied}/{totalBeds} beds occupied
+                      {totalOccupied}/{totalBeds} {t.bedsOccupied}
                     </p>
                   </motion.div>
 
@@ -819,10 +1049,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </span>
                     </div>
                     <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                      Active Staff
+                      {t.activeStaff}
                     </h3>
                     <p className="text-xs text-gray-600">
-                      Out of {totalStaff} total staff
+                      Out of {totalStaff} {t.totalStaff}
                     </p>
                   </motion.div>
 
@@ -841,10 +1071,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </span>
                     </div>
                     <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                      Today's Appointments
+                      {t.todayAppointments}
                     </h3>
                     <p className="text-xs text-gray-600">
-                      {bookedSlots}/{totalSlots} slots booked
+                      {bookedSlots}/{totalSlots} {t.slotsBooked}
                     </p>
                   </motion.div>
 
@@ -863,10 +1093,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </span>
                     </div>
                     <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                      High Priority Alerts
+                      {t.highPriorityAlerts}
                     </h3>
                     <p className="text-xs text-gray-600">
-                      {surgeAlerts.length} total alerts active
+                      {surgeAlerts.length} {t.alertsActive}
                     </p>
                   </motion.div>
                 </div>
@@ -910,13 +1140,13 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                         <div>
                           <h3 className="text-xl md:text-2xl uppercase tracking-wide mb-1 text-black" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            OPD Command Center
+                            {t.opdCommandCenter}
                           </h3>
-                          <p className="text-xs text-gray-600">Live OPD flow • Department mix • Time-slot trend</p>
+                          <p className="text-xs text-gray-600">{t.opdSubtitle}</p>
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="px-3 py-2 bg-indigo-100 rounded-xl text-xs uppercase tracking-wide border border-indigo-200 text-indigo-700">
-                            Completion: {completionRate}%
+                            {t.completed}: {completionRate}%
                           </div>
                           <button
                             onClick={() => setActiveTab("doctors")}
@@ -924,7 +1154,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                             style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                           >
                             <Stethoscope className="w-4 h-4" />
-                            Manage OPD & Slots
+                            {t.manageOpd}
                           </button>
                         </div>
                       </div>
@@ -932,34 +1162,34 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                         <div className="rounded-xl p-4 bg-blue-50 border border-blue-200">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs uppercase tracking-wide text-blue-700 font-semibold">Total OPD</span>
+                            <span className="text-xs uppercase tracking-wide text-blue-700 font-semibold">{t.totalOpd}</span>
                             <Calendar className="w-4 h-4 text-blue-600" />
                           </div>
                           <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdAppointments.length}</div>
-                          <p className="text-[11px] text-gray-600 mt-1">Scheduled today</p>
+                          <p className="text-[11px] text-gray-600 mt-1">{t.scheduledToday}</p>
                         </div>
                         <div className="rounded-xl p-4 bg-orange-50 border border-orange-200">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs uppercase tracking-wide text-orange-700 font-semibold">Waiting</span>
+                            <span className="text-xs uppercase tracking-wide text-orange-700 font-semibold">{t.waiting}</span>
                             <Clock className="w-4 h-4 text-orange-600" />
                           </div>
                           <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdScheduled.length}</div>
-                          <p className="text-[11px] text-gray-600 mt-1">Not completed</p>
+                          <p className="text-[11px] text-gray-600 mt-1">{t.notCompleted}</p>
                         </div>
                         <div className="rounded-xl p-4 bg-green-50 border border-green-200">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs uppercase tracking-wide text-green-700 font-semibold">Completed</span>
+                            <span className="text-xs uppercase tracking-wide text-green-700 font-semibold">{t.completed}</span>
                             <CheckCircle className="w-4 h-4 text-green-600" />
                           </div>
                           <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdCompleted.length}</div>
-                          <p className="text-[11px] text-gray-600 mt-1">Done today</p>
+                          <p className="text-[11px] text-gray-600 mt-1">{t.doneToday}</p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                         <div className="rounded-xl p-5 bg-gray-50 border border-gray-200">
                           <h4 className="text-sm uppercase tracking-wide mb-3 text-black" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            Department Mix
+                            {t.departmentMix}
                           </h4>
                           {departmentChartData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={220}>
@@ -978,7 +1208,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                         <div className="rounded-xl p-5 bg-gray-50 border border-gray-200">
                           <h4 className="text-sm uppercase tracking-wide mb-3 text-black" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            Status Mix
+                            {t.statusMix}
                           </h4>
                           {statusData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={220}>
@@ -997,7 +1227,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                         <div className="rounded-xl p-5 bg-gray-50 border border-gray-200">
                           <h4 className="text-sm uppercase tracking-wide mb-3 text-black" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            Time-slot Trend
+                            {t.timeSlotTrend}
                           </h4>
                           {timeSlotChartData.length > 0 ? (
                             <ResponsiveContainer width="100%" height={220}>
@@ -1019,22 +1249,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <div className="rounded-xl p-5 bg-gray-50 border border-gray-200 overflow-x-auto">
                         <div className="flex items-center justify-between mb-4">
                           <h4 className="text-sm uppercase tracking-wide text-black" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            Live OPD Queue
+                            {t.liveOpdQueue}
                           </h4>
                           <span className="text-xs text-gray-700 bg-white px-3 py-1 rounded-full border border-gray-300">
-                            Showing {Math.min(todaysOpdAppointments.length, 10)} of {todaysOpdAppointments.length}
+                            {t.showing} {Math.min(todaysOpdAppointments.length, 10)} {t.of} {todaysOpdAppointments.length}
                           </span>
                         </div>
                         {todaysOpdAppointments.length === 0 ? (
-                          <div className="py-10 text-center text-gray-500 text-sm">No OPD appointments found for today.</div>
+                          <div className="py-10 text-center text-gray-500 text-sm">{t.noOpdAppointments}</div>
                         ) : (
                           <div className="min-w-full">
                             <div className="grid grid-cols-5 gap-4 text-xs font-semibold text-gray-700 mb-3 pb-2 border-b border-gray-300">
-                              <span>Time</span>
-                              <span>Patient</span>
-                              <span>Doctor</span>
-                              <span>Department</span>
-                              <span className="text-right">Status</span>
+                              <span>{t.time}</span>
+                              <span>{t.patient}</span>
+                              <span>{t.doctor}</span>
+                              <span>{t.department}</span>
+                              <span className="text-right">{t.status}</span>
                             </div>
                             <div className="space-y-2">
                               {todaysOpdAppointments
@@ -1068,19 +1298,19 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 })()}
 
                 {/* Bed Status Grid */}
-                <div className="bg-gray-50 rounded-2xl p-6">
+                <div className="bg-gray-50 rounded-2xl p-6 mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3
                       className="text-lg uppercase tracking-wide"
                       style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                     >
-                      Bed Status by Type
+                      {t.bedStatusByType}
                     </h3>
                     <button
                       onClick={() => setActiveTab("beds")}
                       className="text-sm text-gray-600 hover:text-black flex items-center gap-1"
                     >
-                      View all <ChevronRight className="w-4 h-4" />
+                      {t.viewAll} <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1167,118 +1397,381 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             )}
 
             {/* Beds Tab */}
+            {/* Beds Tab - VISUAL OVERHAUL */}
             {activeTab === "beds" && (
+              <div className="space-y-8">
+                <div className="sticky top-20 z-20 bg-gray-50/95 backdrop-blur-sm py-4 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-gray-200 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-all shadow-sm">
+                  <div>
+                    <h2
+                      className="text-2xl md:text-3xl uppercase tracking-wide text-gray-900"
+                      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: "800" }}
+                    >
+                      {t.bedManagement}
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {t.visualBedTracker}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {/* Legend */}
+                    <div className="hidden md:flex items-center gap-4 bg-white px-3 py-1.5 rounded-lg border border-gray-200 mr-2 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
+                        <span className="text-xs font-semibold text-gray-700">{t.available}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+                        <span className="text-xs font-semibold text-gray-700">{t.occupied}</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setShowAddBedModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide shadow-md hover:shadow-lg"
+                      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: "600" }}
+                    >
+                      <Plus className="w-4 h-4" />
+                      {t.addBedType}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bed Wards Visual Grid */}
+                <div className="grid grid-cols-1 gap-8">
+                  {beds.map((bed) => (
+                    <div key={bed.id} className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 mt-12">
+                      <div className="flex items-center justify-between mb-6 border-b border-gray-100 pb-4">
+                        <div className="flex items-center gap-4">
+                          <div className="p-3 bg-gray-50 rounded-2xl">
+                            <BedDouble className="w-6 h-6 text-gray-900" />
+                          </div>
+                          <div>
+                            <h3
+                              className="text-xl uppercase tracking-wide text-gray-900"
+                              style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: "700" }}
+                            >
+                              {bed.type} Ward
+                            </h3>
+                            <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
+                              <span className="font-medium text-gray-900">{bed.occupied}</span> {t.occupied}
+                              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                              <span className="font-medium text-gray-900">{bed.available}</span> {t.available}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Occupancy Percentage Badge */}
+                        <div className={`px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 ${(bed.occupied / bed.total) >= 0.9 ? 'bg-red-50 text-red-600' :
+                          (bed.occupied / bed.total) >= 0.7 ? 'bg-orange-50 text-orange-600' :
+                            'bg-emerald-50 text-emerald-600'
+                          }`}>
+                          <Activity className="w-4 h-4" />
+                          {Math.round((bed.occupied / bed.total) * 100)}% Full
+                        </div>
+                      </div>
+
+                      {/* Visual Bed Grid */}
+                      <div className="flex flex-wrap gap-3">
+                        {/* 
+                           If 'bed.beds' exists (backend supported), use it. 
+                           Otherwise fallback to numeric loop for safety until migration is confirmed.
+                        */}
+                        {bed.beds && bed.beds.length > 0 ? (
+                          // Sort by bed number just to be safe they appear in order
+                          [...bed.beds].sort((a, b) => a.number - b.number).map((b) => (
+                            <motion.button
+                              key={b.number}
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => {
+                                if (b.status === 'occupied') {
+                                  handleReleaseBed(bed, b.number);
+                                } else {
+                                  handleOccupyBed(bed, b.number);
+                                }
+                              }}
+                              className={`
+                                  relative group w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300
+                                  ${b.status === 'occupied'
+                                  ? "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100"
+                                  : "bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 shadow-sm"}
+                                `}
+                            >
+                              <BedDouble className={`w-5 h-5 ${b.status === 'occupied' ? "fill-current" : ""}`} />
+                              <span className={`absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold rounded-full shadow-sm
+                                  ${b.status === 'occupied' ? "bg-white text-red-600 border border-red-100" : "bg-emerald-600 text-white"}
+                                `}>
+                                {b.number}
+                              </span>
+
+                              {/* Tooltip */}
+                              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
+                                {b.status === 'occupied' ? `${t.releaseBed} ${b.number}` : `${t.occupyBed} ${b.number}`}
+                              </div>
+                            </motion.button>
+                          ))
+                        ) : (
+                          // Fallback Legacy Loop (should generally be replaced by above if backend works)
+                          Array.from({ length: bed.total }).map((_, i) => {
+                            const isOccupied = i < bed.occupied;
+                            const bedNum = i + 1;
+                            return (
+                              <motion.button
+                                key={i}
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => isOccupied ? handleReleaseBed(bed, undefined) : handleOccupyBed(bed, undefined)}
+                                className={`
+                                  relative group w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300
+                                  ${isOccupied
+                                    ? "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100"
+                                    : "bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 shadow-sm"}
+                                `}
+                              >
+                                <BedDouble className={`w-5 h-5 ${isOccupied ? "fill-current" : ""}`} />
+                                <span className={`absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold rounded-full shadow-sm
+                                  ${isOccupied ? "bg-white text-red-600 border border-red-100" : "bg-emerald-600 text-white"}
+                                `}>
+                                  {bedNum}
+                                </span>
+                              </motion.button>
+                            );
+                          })
+                        )}
+
+                        {/* Add Bed Button */}
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={async () => {
+                            try {
+                              // Add bed action
+                              const updated = await updateHospitalBed(bed.id, { action: 'add-bed' });
+                              setBeds(beds.map(b => b.id === bed.id ? updated : b));
+                              toast.success("New bed added to ward");
+                            } catch (error: any) {
+                              toast.error("Failed to add bed");
+                            }
+                          }}
+                          className="w-12 h-12 rounded-xl flex items-center justify-center bg-white border-2 border-dashed border-gray-300 text-gray-400 hover:border-black hover:text-black transition-all"
+                        >
+                          <Plus className="w-5 h-5" />
+                        </motion.button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {beds.length === 0 && (
+                    <div className="text-center py-16 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+                      <BedDouble className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-lg font-semibold text-gray-900">No Wards Configured</h3>
+                      <p className="text-gray-500 mb-6">Start by adding a ward to manage beds.</p>
+                      <button
+                        onClick={() => setShowAddBedModal(true)}
+                        className="px-6 py-3 bg-black text-white rounded-xl font-medium hover:bg-gray-800 transition-colors"
+                      >
+                        {t.addBedType}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* OPD Queue Tab */}
+            {activeTab === "opd" && (
               <div className="space-y-6">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <h2
                     className="text-2xl md:text-3xl uppercase tracking-wide"
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                   >
-                    Bed Management
+                    {t.opdQueue}
                   </h2>
-                  <button
-                    onClick={() => setShowAddBedModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Bed Type
-                  </button>
+                  <div className="text-sm text-gray-600">
+                    Auto-refreshes every 30 seconds
+                  </div>
                 </div>
 
-                {/* Bed Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {beds.map((bed) => (
-                    <div key={bed.id} className="bg-gray-50 rounded-2xl p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white rounded-xl">
-                            <BedDouble className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <h3
-                              className="text-lg uppercase tracking-wide"
-                              style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                            >
-                              {bed.type} Ward
-                            </h3>
-                            <p className="text-xs text-gray-500">
-                              {bed.occupied}/{bed.total} occupied
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setSelectedBed(bed);
-                            setShowBedModal(true);
-                          }}
-                          className="p-2 hover:bg-white rounded-lg transition-colors"
-                        >
-                          <Eye className="w-5 h-5" />
-                        </button>
-                      </div>
+                {/* Check-in Form */}
+                <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+                  <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Doto', sans-serif" }}>
+                    {t.patientCheckIn}
+                  </h3>
+                  <form onSubmit={handleOpdCheckIn} className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <input
+                      type="text"
+                      placeholder={t.patientName}
+                      value={opdForm.patientName}
+                      onChange={(e: any) => setOpdForm({ ...opdForm, patientName: e.target.value })}
+                      required
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                    />
+                    <input
+                      type="text"
+                      placeholder={t.selectDepartment}
+                      value={opdForm.department}
+                      onChange={(e: any) => setOpdForm({ ...opdForm, department: e.target.value })}
+                      required
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                    />
+                    <select
+                      value={opdForm.doctorName}
+                      onChange={(e: any) => setOpdForm({ ...opdForm, doctorName: e.target.value })}
+                      required
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                    >
+                      <option value="">{t.selectDoctor}</option>
+                      {hospitalDoctors.map((doctor) => (
+                        <option key={doctor.id} value={doctor.name}>
+                          {doctor.name}{doctor.specialization ? ` (${doctor.specialization})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={opdForm.priority}
+                      onChange={(e: any) => setOpdForm({ ...opdForm, priority: e.target.value as any })}
+                      className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
+                    >
+                      <option value="low">{t.low}</option>
+                      <option value="normal">{t.normal}</option>
+                      <option value="high">{t.high}</option>
+                      <option value="critical">{t.critical}</option>
+                    </select>
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                    >
+                      {t.checkIn}
+                    </button>
+                  </form>
+                </div>
 
-                      {/* Progress Bar */}
-                      <div className="mb-4">
-                        <div className="w-full bg-gray-200 rounded-full h-3">
-                          <div
-                            className={`h-3 rounded-full transition-all ${(bed.occupied / bed.total) * 100 > 90
-                              ? "bg-red-500"
-                              : (bed.occupied / bed.total) * 100 > 75
-                                ? "bg-orange-500"
-                                : "bg-green-500"
-                              }`}
-                            style={{ width: `${(bed.occupied / bed.total) * 100}%` }}
-                          />
-                        </div>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {Math.round((bed.occupied / bed.total) * 100)}% occupancy
+                {/* Queue Statistics */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                    <div className="flex items-center gap-3">
+                      <Clock className="w-8 h-8 text-blue-600" />
+                      <div>
+                        <p className="text-sm text-blue-600 font-medium">Waiting</p>
+                        <p className="text-2xl font-bold text-blue-900">
+                          {opdQueue.filter((e: any) => e.status === 'checked-in' || e.status === 'in-triage').length}
                         </p>
                       </div>
-
-                      {/* Statistics */}
-                      <div className="grid grid-cols-3 gap-3 mb-4">
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <div className="text-xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            {bed.total}
-                          </div>
-                          <div className="text-xs text-gray-500 uppercase">Total</div>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <div className="text-xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            {bed.occupied}
-                          </div>
-                          <div className="text-xs text-gray-500 uppercase">Occupied</div>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <div className="text-xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                            {bed.available}
-                          </div>
-                          <div className="text-xs text-gray-500 uppercase">Available</div>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleOccupyBed(bed.id)}
-                          disabled={bed.available === 0}
-                          className="flex-1 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm uppercase tracking-wide"
-                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                        >
-                          Occupy Bed
-                        </button>
-                        <button
-                          onClick={() => handleReleaseBed(bed.id)}
-                          disabled={bed.occupied === 0}
-                          className="flex-1 py-2 bg-white text-black border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed text-sm uppercase tracking-wide"
-                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                        >
-                          Release Bed
-                        </button>
+                    </div>
+                  </div>
+                  <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border border-yellow-200">
+                    <div className="flex items-center gap-3">
+                      <Users className="w-8 h-8 text-yellow-600" />
+                      <div>
+                        <p className="text-sm text-yellow-600 font-medium">In Consultation</p>
+                        <p className="text-2xl font-bold text-yellow-900">
+                          {opdQueue.filter((e: any) => e.status === 'in-consult').length}
+                        </p>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                  <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                    <div className="flex items-center gap-3">
+                      <CheckCircle className="w-8 h-8 text-green-600" />
+                      <div>
+                        <p className="text-sm text-green-600 font-medium">Completed Today</p>
+                        <p className="text-2xl font-bold text-green-900">
+                          {opdQueue.filter((e: any) => e.status === 'completed').length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Queue Display */}
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold" style={{ fontFamily: "'Doto', sans-serif" }}>
+                    Current Queue
+                  </h3>
+                  {opdQueue.filter((e: any) => e.status !== 'completed' && e.status !== 'no-show').length === 0 ? (
+                    <div className="bg-gray-50 rounded-xl p-8 text-center text-gray-500">
+                      No patients in queue
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {opdQueue
+                        .filter((e: any) => e.status !== 'completed' && e.status !== 'no-show')
+                        .sort((a: any, b: any) => {
+                          const priorityOrder: any = { critical: 0, high: 1, normal: 2, low: 3 };
+                          return priorityOrder[a.priority] - priorityOrder[b.priority];
+                        })
+                        .map((entry: any) => {
+                          const borderColor =
+                            entry.priority === 'critical'
+                              ? 'border-l-4 border-red-500'
+                              : entry.priority === 'high'
+                                ? 'border-l-4 border-orange-500'
+                                : entry.priority === 'low'
+                                  ? 'border-l-4 border-gray-400'
+                                  : 'border-l-4 border-blue-400';
+
+                          return (
+                            <div
+                              key={entry.id}
+                              className={`bg-white rounded-xl shadow-md p-4 ${borderColor} hover:shadow-lg transition-shadow`}
+                            >
+                              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 gap-3">
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase tracking-wide">Queue #</p>
+                                    <p className="text-lg font-bold">{entry.queueNumber}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase tracking-wide">Patient</p>
+                                    <p className="font-semibold">{entry.patientName}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase tracking-wide">Department</p>
+                                    <p className="text-sm">{entry.department}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase tracking-wide">Doctor</p>
+                                    <p className="text-sm">{entry.doctorName}</p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    value={entry.priority}
+                                    onChange={(e: any) => handleUpdateOpdPriority(entry.id, e.target.value)}
+                                    className="px-3 py-1 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-black"
+                                  >
+                                    <option value="low">Low</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="high">High</option>
+                                    <option value="critical">Critical</option>
+                                  </select>
+                                  {(entry.status === 'checked-in' || entry.status === 'in-triage') && (
+                                    <button
+                                      onClick={() => handleUpdateOpdStatus(entry.id, 'in-consult')}
+                                      className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs uppercase tracking-wide"
+                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                    >
+                                      Start Consultation
+                                    </button>
+                                  )}
+                                  {entry.status === 'in-consult' && (
+                                    <button
+                                      onClick={() => handleUpdateOpdStatus(entry.id, 'completed')}
+                                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs uppercase tracking-wide"
+                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                    >
+                                      Mark Complete
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1291,7 +1784,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     className="text-2xl md:text-3xl uppercase tracking-wide"
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                   >
-                    Doctor Slots & OPD
+                    {t.doctorSchedule}
                   </h2>
                   <button
                     onClick={() => setShowAddDoctorModal(true)}
@@ -1299,7 +1792,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                   >
                     <Plus className="w-4 h-4" />
-                    Add Doctor Schedule
+                    {t.addDoctor}
                   </button>
                 </div>
 
@@ -1310,7 +1803,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search doctors or specializations..."
+                        placeholder={t.searchDoctors}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-white rounded-xl outline-none text-sm"
@@ -1412,7 +1905,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     className="text-2xl md:text-3xl uppercase tracking-wide"
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                   >
-                    Staff Allocation
+                    {t.staffManagement}
                   </h2>
                   <button
                     onClick={() => setShowAddStaffModal(true)}
@@ -1420,7 +1913,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                   >
                     <UserPlus className="w-4 h-4" />
-                    Add Staff Member
+                    {t.addStaff}
                   </button>
                 </div>
 
@@ -1431,7 +1924,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search staff members..."
+                        placeholder={t.searchStaff}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 bg-white rounded-xl outline-none text-sm"
@@ -1560,14 +2053,24 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       AI-powered predictions based on environmental and seasonal data
                     </p>
                   </div>
-                  <button
-                    onClick={() => setShowAlertConfigModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                  >
-                    <Settings className="w-4 h-4" />
-                    Configure Alerts
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddAlertModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors text-sm uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Broadcast Alert
+                    </button>
+                    <button
+                      onClick={() => setShowAlertConfigModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                    >
+                      <Settings className="w-4 h-4" />
+                      Configure Alerts
+                    </button>
+                  </div>
                 </div>
 
                 {/* Environmental Data Card */}
@@ -1683,12 +2186,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             {/* Appointments Tab */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
-                <h2
-                  className="text-2xl md:text-3xl uppercase tracking-wide"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
-                >
-                  Today's Appointments
-                </h2>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <h2
+                    className="text-2xl md:text-3xl uppercase tracking-wide"
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
+                  >
+                    Today's Appointments
+                  </h2>
+                  <button
+                    onClick={() => setShowAddAppointmentModal(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Schedule Appointment
+                  </button>
+                </div>
 
                 <div className="space-y-3">
                   {appointments.map((appointment) => (
@@ -1741,17 +2254,17 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   className="text-2xl md:text-3xl mb-6 uppercase tracking-wide"
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                 >
-                  Settings
+                  {t.settings}
                 </h2>
 
                 <div className="space-y-4">
                   {/* Account Settings */}
                   <div className="bg-gray-50 rounded-2xl p-6">
                     <h3
-                      className="text-lg mb-4 uppercase tracking-wide"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                      className="text-lg font-semibold mb-4"
+                      style={{ fontFamily: "'Doto', sans-serif" }}
                     >
-                      Account
+                      {t.account}
                     </h3>
                     <div className="space-y-3">
                       <button
@@ -1759,21 +2272,21 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                         className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                       >
                         <Lock className="w-5 h-5 text-gray-600" />
-                        <span>Change Password</span>
+                        <span>{t.changePassword}</span>
                       </button>
                       <button
                         onClick={() => setShowUpdateProfileModal(true)}
                         className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                       >
                         <Edit className="w-5 h-5 text-gray-600" />
-                        <span>Update Hospital Profile</span>
+                        <span>{t.updateProfile}</span>
                       </button>
                       <button
                         onClick={() => toast.info("Privacy settings feature coming soon")}
                         className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                       >
                         <Shield className="w-5 h-5 text-gray-600" />
-                        <span>Privacy Settings</span>
+                        <span>{t.privacySettings}</span>
                       </button>
                     </div>
                   </div>
@@ -1781,10 +2294,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   {/* Appearance Settings */}
                   <div className="bg-gray-50 rounded-2xl p-6">
                     <h3
-                      className="text-lg mb-4 uppercase tracking-wide"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                      className="text-lg font-semibold mb-4"
+                      style={{ fontFamily: "'Doto', sans-serif" }}
                     >
-                      Appearance
+                      {t.appearance}
                     </h3>
                     <div className="space-y-4">
                       {/* Dark Mode Toggle */}
@@ -1795,12 +2308,12 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           ) : (
                             <Sun className="w-5 h-5 text-gray-600" />
                           )}
-                          <span className="text-sm">Dark Mode</span>
+                          <span className="text-sm">{t.darkMode}</span>
                         </div>
                         <button
                           onClick={() => {
                             setDarkMode(!darkMode);
-                            toast.success(darkMode ? "Light mode enabled" : "Dark mode enabled");
+                            toast.success(darkMode ? t.lightModeEnabled : t.darkModeEnabled);
                           }}
                           className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? "bg-black" : "bg-gray-300"
                             }`}
@@ -1817,22 +2330,25 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       <div className="px-4 py-3 bg-white rounded-xl">
                         <div className="flex items-center gap-3 mb-3">
                           <Globe className="w-5 h-5 text-gray-600" />
-                          <span className="text-sm">Language</span>
+                          <span className="text-sm">{t.language}</span>
                         </div>
                         <select
                           value={language}
                           onChange={(e) => {
                             setLanguage(e.target.value);
-                            toast.success(`Language changed to ${e.target.value}`);
+                            // We need to fetch the newly selected language translation for the toast
+                            const newLang = e.target.value;
+                            const newT = translations[newLang as keyof typeof translations] || translations['English'];
+                            toast.success(`${newT.languageChanged} ${newLang}`);
                           }}
-                          className="w-full px-3 py-2 bg-gray-50 rounded-lg outline-none text-sm"
+                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
                         >
                           <option value="English">English</option>
-                          <option value="Spanish">Español</option>
-                          <option value="French">Français</option>
-                          <option value="German">Deutsch</option>
                           <option value="Hindi">हिन्दी</option>
-                          <option value="Chinese">中文</option>
+                          {/* <option value="Spanish">Spanish</option>
+                          <option value="French">French</option>
+                          <option value="German">German</option>
+                          <option value="Chinese">Chinese</option> */}
                         </select>
                       </div>
                     </div>
@@ -2630,7 +3146,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   className="text-xl uppercase tracking-wide"
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                 >
-                  Add Bed Type
+                  Add New Ward
                 </h3>
                 <button
                   onClick={() => setShowAddBedModal(false)}
@@ -2639,19 +3155,37 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Feature coming soon - Add new bed types to your hospital
-              </p>
-              <button
-                onClick={() => {
-                  toast.info("Add bed type feature coming soon");
-                  setShowAddBedModal(false);
-                }}
-                className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
-                style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-              >
-                Close
-              </button>
+              <form onSubmit={handleAddBedSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Ward Name / Type</label>
+                  <input
+                    type="text"
+                    required
+                    value={newBedForm.type}
+                    onChange={(e) => setNewBedForm({ ...newBedForm, type: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                    placeholder="e.g. ICU, General Ward"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Capacity</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={newBedForm.total}
+                    onChange={(e) => setNewBedForm({ ...newBedForm, total: parseInt(e.target.value) })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
+                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                >
+                  Create Ward
+                </button>
+              </form>
             </motion.div>
           </motion.div>
         )}
@@ -2678,7 +3212,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   className="text-xl uppercase tracking-wide"
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
                 >
-                  Add Doctor Schedule
+                  Add Doctor
                 </h3>
                 <button
                   onClick={() => setShowAddDoctorModal(false)}
@@ -2687,19 +3221,59 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Feature coming soon - Add new doctor schedules and OPD slots
-              </p>
-              <button
-                onClick={() => {
-                  toast.info("Add doctor schedule feature coming soon");
-                  setShowAddDoctorModal(false);
-                }}
-                className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
-                style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-              >
-                Close
-              </button>
+              <form onSubmit={handleAddDoctorSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDoctorForm.name}
+                    onChange={(e) => setNewDoctorForm({ ...newDoctorForm, name: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                    placeholder="Dr. John Doe"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={newDoctorForm.email}
+                    onChange={(e) => setNewDoctorForm({ ...newDoctorForm, email: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                    placeholder="doctor@hospital.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Specialization</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDoctorForm.specialization}
+                    onChange={(e) => setNewDoctorForm({ ...newDoctorForm, specialization: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                    placeholder="e.g. Cardiology"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <input
+                    type="text"
+                    required
+                    value={newDoctorForm.department}
+                    onChange={(e) => setNewDoctorForm({ ...newDoctorForm, department: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                    placeholder="e.g. Cardiology Dept"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
+                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                >
+                  Add Doctor
+                </button>
+              </form>
             </motion.div>
           </motion.div>
         )}
@@ -2735,21 +3309,214 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-4">
-                Feature coming soon - Add new staff members to your hospital
-              </p>
-              <button
-                onClick={() => {
-                  toast.info("Add staff feature coming soon");
-                  setShowAddStaffModal(false);
-                }}
-                className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
-                style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-              >
-                Close
-              </button>
+              <form onSubmit={handleAddStaffSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={newStaffForm.name}
+                    onChange={(e) => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={newStaffForm.role}
+                    onChange={(e) => setNewStaffForm({ ...newStaffForm, role: e.target.value as any })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                  >
+                    <option value="Nurse">Nurse</option>
+                    <option value="Technician">Technician</option>
+                    <option value="Support">Support</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <input
+                    type="text"
+                    required
+                    value={newStaffForm.department}
+                    onChange={(e) => setNewStaffForm({ ...newStaffForm, department: e.target.value })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Shift</label>
+                  <select
+                    value={newStaffForm.shift}
+                    onChange={(e) => setNewStaffForm({ ...newStaffForm, shift: e.target.value as any })}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black"
+                  >
+                    <option value="Morning">Morning</option>
+                    <option value="Evening">Evening</option>
+                    <option value="Night">Night</option>
+                  </select>
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors uppercase tracking-wide"
+                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                >
+                  Add Staff Member
+                </button>
+              </form>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Appointment Modal */}
+      <AnimatePresence>
+        {showAddAppointmentModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold">Schedule Appointment</h3>
+                <button
+                  onClick={() => setShowAddAppointmentModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleCreateAppointment} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Patient Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualAppointmentForm.patientName}
+                    onChange={(e) => setManualAppointmentForm({ ...manualAppointmentForm, patientName: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Doctor Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualAppointmentForm.doctorName}
+                    onChange={(e) => setManualAppointmentForm({ ...manualAppointmentForm, doctorName: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                  <input
+                    type="text"
+                    required
+                    value={manualAppointmentForm.department}
+                    onChange={(e) => setManualAppointmentForm({ ...manualAppointmentForm, department: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={manualAppointmentForm.date}
+                      onChange={(e) => setManualAppointmentForm({ ...manualAppointmentForm, date: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                    <input
+                      type="time"
+                      required
+                      value={manualAppointmentForm.time}
+                      onChange={(e) => setManualAppointmentForm({ ...manualAppointmentForm, time: e.target.value })}
+                      className="w-full px-4 py-2 border rounded-xl"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-black text-white rounded-xl font-medium hover:bg-gray-900"
+                >
+                  Schedule Appointment
+                </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Manual Alert Modal */}
+      <AnimatePresence>
+        {showAddAlertModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-6 max-w-md w-full"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-red-600">Broadcast Surge Alert</h3>
+                <button
+                  onClick={() => setShowAddAlertModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <form onSubmit={handleBroadcastAlert} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Alert Type</label>
+                  <select
+                    value={manualAlertForm.type}
+                    onChange={(e) => setManualAlertForm({ ...manualAlertForm, type: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl"
+                  >
+                    <option value="epidemic">Epidemic / Disease Outbreak</option>
+                    <option value="pollution">High Pollution</option>
+                    <option value="seasonal">Seasonal Surge</option>
+                    <option value="weather">Extreme Weather</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Severity</label>
+                  <select
+                    value={manualAlertForm.severity}
+                    onChange={(e) => setManualAlertForm({ ...manualAlertForm, severity: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl"
+                  >
+                    <option value="low">Low (Info)</option>
+                    <option value="medium">Medium (Watch)</option>
+                    <option value="high">High (Warning)</option>
+                    <option value="critical">Critical (Emergency)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Message</label>
+                  <textarea
+                    required
+                    value={manualAlertForm.message}
+                    onChange={(e) => setManualAlertForm({ ...manualAlertForm, message: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-xl h-24"
+                    placeholder="Describe the surge situation..."
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700"
+                >
+                  Broadcast Alert
+                </button>
+              </form>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

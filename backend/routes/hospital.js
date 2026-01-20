@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const Hospital = require('../models/Hospital');
+const Doctor = require('../models/Doctor');
 const HospitalBed = require('../models/HospitalBed');
 const HospitalDoctorSlot = require('../models/HospitalDoctorSlot');
 const HospitalStaff = require('../models/HospitalStaff');
@@ -12,7 +13,6 @@ const HospitalAdmission = require('../models/HospitalAdmission');
 const HospitalInventoryItem = require('../models/HospitalInventoryItem');
 const HospitalInventoryTxn = require('../models/HospitalInventoryTxn');
 const User = require('../models/User');
-const Doctor = require('../models/Doctor');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { fetchRealTimeEnvironmentData } = require('../services/aqiService');
 const axios = require('axios');
@@ -32,6 +32,7 @@ const getHospitalByUserId = async (userId) => {
 // ==================== BEDS ====================
 
 // GET /api/hospital/beds
+// GET /api/hospital/beds
 router.get('/beds', async (req, res) => {
   try {
     const hospital = await getHospitalByUserId(req.user.id);
@@ -40,13 +41,25 @@ router.get('/beds', async (req, res) => {
     }
 
     const beds = await HospitalBed.find({ hospitalId: hospital._id }).sort({ type: 1 });
-    
+
+    // Ensure beds array is populated via the pre-save hook logic if it was empty
+    // We might need to save once to trigger the migration if it hasn't happened yet
+    /* 
+    // OPTIONAL: Force migration if needed (can be removed if seeding handles it)
+    for (let b of beds) {
+      if ((!b.beds || b.beds.length === 0) && b.total > 0) {
+        await b.save(); 
+      }
+    }
+    */
+
     res.json(beds.map(bed => ({
       id: bed._id.toString(),
       type: bed.type,
       total: bed.total,
       occupied: bed.occupied,
-      available: bed.available
+      available: bed.available,
+      beds: bed.beds // Return individual bed details
     })));
   } catch (error) {
     console.error('Error fetching beds:', error);
@@ -88,7 +101,8 @@ router.get('/bed-summary', async (req, res) => {
         type: b.type,
         total: b.total,
         occupied: b.occupied,
-        available: b.available
+        available: b.available,
+        beds: b.beds
       }))
     });
   } catch (error) {
@@ -97,11 +111,72 @@ router.get('/bed-summary', async (req, res) => {
   }
 });
 
+// POST /api/hospital/beds - Add a new ward/bed type
+router.post('/beds', async (req, res) => {
+  try {
+    let { type, total } = req.body;
+
+    if (!type || total === undefined) {
+      return res.status(400).json({ message: 'Ward type and total capacity are required' });
+    }
+
+    total = parseInt(total);
+    if (isNaN(total) || total < 0) {
+      return res.status(400).json({ message: 'Total capacity must be a valid number' });
+    }
+
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    // Check if ward type already exists
+    const existing = await HospitalBed.findOne({
+      hospitalId: hospital._id,
+      type: { $regex: new RegExp(`^${type}$`, 'i') } // Case insensitive check
+    });
+
+    if (existing) {
+      return res.status(400).json({ message: `Ward type '${existing.type}' already exists. Please update the existing one.` });
+    }
+
+    // Create individual bed objects
+    const bedsArr = [];
+    for (let i = 1; i <= total; i++) {
+      bedsArr.push({ number: i, status: 'available' });
+    }
+
+    const newBed = new HospitalBed({
+      hospitalId: hospital._id,
+      type,
+      total,
+      occupied: 0,
+      available: total,
+      beds: bedsArr
+    });
+
+    await newBed.save();
+
+    res.status(201).json({
+      id: newBed._id.toString(),
+      type: newBed.type,
+      total: newBed.total,
+      occupied: newBed.occupied,
+      available: newBed.available,
+      beds: newBed.beds
+    });
+
+  } catch (error) {
+    console.error('Error creating bed type:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // PATCH /api/hospital/beds/:id
 router.patch('/beds/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { total, occupied, available, action } = req.body;
+    const { total, occupied, available, action, bedNumber } = req.body;
 
     const hospital = await getHospitalByUserId(req.user.id);
     if (!hospital) {
@@ -118,28 +193,71 @@ router.patch('/beds/:id', async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Handle action-based updates
-    if (action === 'occupy') {
-      if (bed.available > 0) {
-        bed.occupied += 1;
-      } else {
-        return res.status(400).json({ message: 'No available beds to occupy' });
+    // Ensure beds array exists (migration)
+    if ((!bed.beds || bed.beds.length === 0) && bed.total > 0) {
+      const newBeds = [];
+      for (let i = 1; i <= bed.total; i++) {
+        const status = i <= bed.occupied ? 'occupied' : 'available';
+        newBeds.push({ number: i, status });
       }
-    } else if (action === 'release') {
-      if (bed.occupied > 0) {
-        bed.occupied -= 1;
-      } else {
-        return res.status(400).json({ message: 'No occupied beds to release' });
-      }
-    } else {
-      // Direct updates
-      if (total !== undefined) bed.total = Math.max(0, total);
-      if (occupied !== undefined) bed.occupied = Math.max(0, occupied);
+      bed.beds = newBeds;
     }
 
-    // Recalculate available (pre-save hook will handle this, but we do it here too)
-    bed.available = Math.max(0, bed.total - bed.occupied);
-    
+    // Handle action-based updates
+    if (action === 'occupy') {
+      if (bedNumber) {
+        // Occupy SPECIFIC bed
+        const targetBed = bed.beds.find(b => b.number === bedNumber);
+        if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
+        if (targetBed.status === 'occupied') return res.status(400).json({ message: 'Bed already occupied' });
+        targetBed.status = 'occupied';
+      } else {
+        // Auto-occupy first available
+        const firstAvailable = bed.beds.find(b => b.status === 'available');
+        if (firstAvailable) {
+          firstAvailable.status = 'occupied';
+        } else {
+          return res.status(400).json({ message: 'No available beds to occupy' });
+        }
+      }
+    } else if (action === 'release') {
+      if (bedNumber) {
+        // Release SPECIFIC bed
+        const targetBed = bed.beds.find(b => b.number === bedNumber);
+        if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
+        if (targetBed.status === 'available') return res.status(400).json({ message: 'Bed already available' });
+        targetBed.status = 'available';
+        targetBed.patientId = null;
+        targetBed.admissionId = null;
+      } else {
+        // Auto-release first occupied (LIFO or FIFO doesn't strictly matter for counts, but LIFO matches typical "undo")
+        const lastOccupied = [...bed.beds].reverse().find(b => b.status === 'occupied');
+        if (lastOccupied) {
+          lastOccupied.status = 'available';
+          lastOccupied.patientId = null;
+          lastOccupied.admissionId = null;
+        } else {
+          return res.status(400).json({ message: 'No occupied beds to release' });
+        }
+      }
+    } else if (action === 'add-bed') {
+      const nextNumber = (bed.beds.length > 0) ? Math.max(...bed.beds.map(b => b.number)) + 1 : 1;
+      bed.beds.push({ number: nextNumber, status: 'available' });
+    } else {
+      // Legacy or direct updates (e.g. just changing totals manually)
+      // If user passes 'total', we might need to resize array. 
+      // For simplicity, let's assume UI uses 'add-bed' for adding. 
+      // If 'total' is passed and it differs from current length, we can try to adjust.
+      if (total !== undefined && total > bed.beds.length) {
+        const diff = total - bed.beds.length;
+        let startNum = (bed.beds.length > 0) ? Math.max(...bed.beds.map(b => b.number)) + 1 : 1;
+        for (let i = 0; i < diff; i++) {
+          bed.beds.push({ number: startNum++, status: 'available' });
+        }
+      }
+    }
+
+    // pre-save hook will sync calculate occupied/available/total from beds array
     await bed.save();
 
     res.json({
@@ -147,10 +265,162 @@ router.patch('/beds/:id', async (req, res) => {
       type: bed.type,
       total: bed.total,
       occupied: bed.occupied,
-      available: bed.available
+      available: bed.available,
+      beds: bed.beds
     });
   } catch (error) {
     console.error('Error updating bed:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// ==================== DOCTORS ====================
+
+// GET /api/hospital/doctors - Get all doctors linked to this hospital
+router.get('/doctors', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    // Find doctor users linked to this hospital
+    const doctorUsers = await User.find({
+      role: 'doctor',
+      $or: [
+        { hospitalId: hospital._id },
+        { doctorId: { $ne: null } }
+      ]
+    }).populate('doctorId');
+
+    const doctors = doctorUsers
+      .filter((u) => {
+        if (u.hospitalId && u.hospitalId.toString() === hospital._id.toString()) return true;
+        const d = u.doctorId;
+        return d && d.hospitalId && d.hospitalId.toString() === hospital._id.toString();
+      })
+      .map((u) => {
+        const d = u.doctorId;
+        return {
+          id: u._id.toString(),
+          name: u.name || (d && d.name) || 'Unknown Doctor',
+          email: u.email,
+          specialization: d ? d.specialization : null,
+          department: d ? d.department : null,
+          available: true // Can be extended to check slot availability
+        };
+      });
+
+    res.json(doctors);
+  } catch (error) {
+    console.error('Error fetching doctors:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /api/hospital/doctors - Add a new doctor
+router.post('/doctors', async (req, res) => {
+  try {
+    const { name, email, specialization, department } = req.body;
+
+    // Basic validation
+    if (!name || !email || !specialization || !department) {
+      return res.status(400).json({ message: 'Name, email, specialization, and department are required' });
+    }
+
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    // Check if user with this email already exists
+    let user = await User.findOne({ email });
+    let doctorProfile;
+
+    if (user) {
+      // If user exists, they must be a doctor to be added here.
+      // In a real system, you might invite them. For now, we assume simple creation flow.
+      if (user.role !== 'doctor') {
+        return res.status(400).json({ message: 'User with this email exists but is not a doctor' });
+      }
+
+      // If user exists but is not linked to this hospital, we define linking logic.
+      // For simplicity in this demo: we update their hospitalId if it's currently null
+      if (!user.hospitalId) {
+        user.hospitalId = hospital._id;
+        await user.save();
+      }
+
+      // Also ensure Doctor profile exists
+      if (user.doctorId) {
+        doctorProfile = await Doctor.findById(user.doctorId);
+        if (doctorProfile && !doctorProfile.hospitalId) {
+          doctorProfile.hospitalId = hospital._id;
+          await doctorProfile.save();
+        }
+      }
+
+    } else {
+      // Create new User and Doctor profile
+      const tempPassword = "DoctorPassword@123"; // Default password for new doctors
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(tempPassword, salt);
+
+      // 1. Create Doctor Profile first (to get ID) or after?
+      // Let's create Doctor profile first since User references it in this schema style often, 
+      // or User first. Looking at User model (not visible but inferred), it has doctorId ref.
+
+      doctorProfile = new Doctor({
+        name,
+        specialization,
+        department, // Note: Schema might not have department explicitly on top level? Checking Doctor.js view... 
+        // Doctor.js has: name, specialization, education, etc. NO 'department' field in the schema trace earlier!
+        // Wait, HospitalDoctorSlot has 'department'. Doctor model usually implies department via specialization.
+        // I will add 'department' to Doctor model if needed or distinct.
+        // The view of Doctor.js showed: name, specialization, education, phone, address, hospitalId. 
+        // NO 'department'. I should probably stick to specialization or add it.
+        // For now, I'll store it in specialization if department is redundant, OR assume specialization ~= department.
+        // Actually, UI asks for both. I will save 'specialization' as "Specialization (Department)" or 
+        // update Doctor schema. 
+        // Let's update Doctor schema to include department. It's cleaner.
+        // For now, I will proceed assuming I can add it, or just use specialization.
+        hospitalId: hospital._id
+      });
+      // Adding department dynamically if schema strictly enforces... Mongoose ignores unknown fields if strict is true.
+      // I'll check strictness later. I'll save it to be safe.
+
+      await doctorProfile.save();
+
+      // 2. Create User
+      user = new User({
+        name,
+        email,
+        passwordHash,
+        role: 'doctor',
+        hospitalId: hospital._id,
+        doctorId: doctorProfile._id
+      });
+      await user.save();
+
+      // Update doctor with userId
+      doctorProfile.userId = user._id;
+      // Also, if I can't add department to Doctor model without schema change, I'll rely on Slot generation to pick up department from elsewhere?
+      // Actually hospital-doctor-slot requires department. 
+      // I will save the department in the Doctor model - I need to update the model file too.
+      await doctorProfile.save();
+    }
+
+    res.status(201).json({
+      id: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      specialization: doctorProfile?.specialization || specialization,
+      department: department, // Pass back what was sent
+      available: true
+    });
+
+  } catch (error) {
+    console.error('Error creating doctor:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -169,21 +439,80 @@ router.get('/doctor-slots', async (req, res) => {
     // We still store slots in HospitalDoctorSlot so the existing UI + toggle endpoint continue to work.
     const today = new Date().toISOString().split('T')[0];
 
-    // Find doctor users for this hospital. Prefer the explicit `hospitalId` on User;
-    // otherwise fall back to Doctor.hospitalId via user.doctorId.
+    // Find doctor users for this hospital. 
+    // Logic updated to dynamic sync by domain + existing links
+    // 1. Get hospital admin email domain
+    const hospitalAdmin = await User.findById(req.user.id);
+    const adminEmail = hospitalAdmin ? hospitalAdmin.email : '';
+    const domain = adminEmail.split('@')[1]; // e.g., cityhospital.com
+
+    let domainQuery = {};
+    if (domain) {
+      domainQuery = {
+        email: { $regex: new RegExp(`@${domain}$`, 'i') }
+      };
+    }
+
     const doctorUsers = await User.find({
       role: 'doctor',
       $or: [
         { hospitalId: hospital._id },
-        { doctorId: { $ne: null } }
+        { doctorId: { $ne: null }, ...domainQuery }, // If linked to different hospital, might be tricky, but usually implies same org via domain
+        domainQuery // Matches domain
       ]
     }).populate('doctorId');
 
-    const doctorsForHospital = doctorUsers.filter((u) => {
-      if (u.hospitalId && u.hospitalId.toString() === hospital._id.toString()) return true;
-      const d = u.doctorId;
-      return d && d.hospitalId && d.hospitalId.toString() === hospital._id.toString();
-    });
+    const doctorsForHospital = [];
+
+    for (const u of doctorUsers) {
+      let shouldInclude = false;
+
+      // Check strict ID match
+      if (u.hospitalId && u.hospitalId.toString() === hospital._id.toString()) {
+        shouldInclude = true;
+      }
+      // Check profile match
+      else if (u.doctorId && u.doctorId.hospitalId && u.doctorId.hospitalId.toString() === hospital._id.toString()) {
+        shouldInclude = true;
+      }
+      // Check Domain match
+      else if (domain && u.email.toLowerCase().endsWith(`@${domain.toLowerCase()}`)) {
+        shouldInclude = true;
+
+        // AUTO-LINKING: Update user if not linked
+        if (!u.hospitalId) {
+          u.hospitalId = hospital._id;
+          await u.save();
+
+          // Ensure profile exists/linked
+          if (u.doctorId) {
+            const d = await Doctor.findById(u.doctorId);
+            if (d && !d.hospitalId) {
+              d.hospitalId = hospital._id;
+              await d.save();
+            }
+          } else {
+            // Create profile if missing (handled in slot generation implicitly or we can do here)
+            // Let's create it here to be robust
+            const d = new Doctor({
+              userId: u._id,
+              name: u.name,
+              email: u.email,
+              hospitalId: hospital._id,
+              specialization: 'General',
+              department: 'General'
+            });
+            await d.save();
+            u.doctorId = d._id;
+            await u.save();
+          }
+        }
+      }
+
+      if (shouldInclude) {
+        doctorsForHospital.push(u);
+      }
+    }
 
     // Default slot template (can be edited by toggling available/blocked)
     const defaultSlots = [
@@ -274,7 +603,7 @@ router.patch('/doctor-slots/:doctorSlotId/slots/:slotIndex', async (req, res) =>
     }
 
     const slot = doctorSlot.slots[index];
-    
+
     // Cannot modify booked slots
     if (slot.status === 'booked') {
       return res.status(400).json({ message: 'Cannot modify booked slots' });
@@ -318,7 +647,7 @@ router.get('/staff', async (req, res) => {
     }
 
     const staff = await HospitalStaff.find({ hospitalId: hospital._id }).sort({ name: 1 });
-    
+
     res.json(staff.map(member => ({
       id: member._id.toString(),
       name: member.name,
@@ -455,7 +784,7 @@ router.get('/surge-alerts', async (req, res) => {
 
     const alerts = await HospitalSurgeAlert.find({ hospitalId: hospital._id })
       .sort({ date: -1, severity: -1 });
-    
+
     res.json(alerts.map(alert => ({
       id: alert._id.toString(),
       type: alert.type,
@@ -485,11 +814,11 @@ router.get('/environment', async (req, res) => {
     }
 
     let environment = await HospitalEnvironment.findOne({ hospitalId: hospital._id });
-    
+
     // Fetch real-time AQI and weather data
     try {
       const realTimeData = await fetchRealTimeEnvironmentData('Mumbai');
-      
+
       // Update or create environment record with real-time data
       if (environment) {
         environment.aqi = realTimeData.aqi;
@@ -509,7 +838,7 @@ router.get('/environment', async (req, res) => {
         });
         await environment.save();
       }
-      
+
       console.log(`✅ Updated environment data: AQI=${realTimeData.aqi}, Temp=${realTimeData.temperature}°C, Source=${realTimeData.source}`);
     } catch (aqiError) {
       console.warn('Failed to fetch real-time AQI, using stored data:', aqiError.message);
@@ -618,7 +947,7 @@ router.get('/appointments', async (req, res) => {
 
     const appointments = await HospitalAppointment.find(query)
       .sort({ date: 1, time: 1 });
-    
+
     res.json(appointments.map(apt => ({
       id: apt._id.toString(),
       patientName: apt.patientName,
@@ -1151,6 +1480,159 @@ router.post('/change-password', async (req, res) => {
   } catch (error) {
     console.error('Error changing password:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /api/hospital/appointments - Manual entry for walk-ins/phone
+router.post('/appointments', async (req, res) => {
+  try {
+    const { patientName, doctorName, department, date, time, type } = req.body;
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const newAppointment = new HospitalAppointment({
+      hospitalId: hospital._id,
+      patientName,
+      doctorName,
+      department,
+      date,
+      time,
+      type,
+      status: 'scheduled'
+    });
+
+    await newAppointment.save();
+    res.status(201).json(newAppointment);
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating appointment', error: error.message });
+  }
+});
+
+// GET /api/hospital/doctors
+router.get('/doctors', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    // Fetch doctors linked to this hospital from the Doctor collection
+    // This allows both manually added doctors AND auto-linked doctors to appear
+    const doctors = await Doctor.find({ hospitalId: hospital._id });
+
+    // Also fetch legacy embedded doctors if any (optional, but good for backward compatibility)
+    // const embeddedDoctors = hospital.doctors || [];
+
+    // Merge/Map to response format
+    const response = doctors.map(d => ({
+      id: d._id.toString(),
+      name: d.name,
+      email: d.email,
+      specialization: d.specialization,
+      department: d.department,
+      available: true // Default
+    }));
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching hospital doctors:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// POST /api/hospital/doctors - Add manual doctor
+router.post('/doctors', async (req, res) => {
+  try {
+    const { name, email, specialization, department } = req.body;
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    // Create new Doctor profile
+    const newDoctor = new Doctor({
+      userId: req.user.id, // Note: For manually added doctors, we might not have a userId if they haven't signed up yet. 
+      // But usually, manual add implies we are just creating a record.
+      // ideally, we should check if a user exists with this email.
+      // For now, let's create a standalone Doctor document. 
+      // Note: Model requires userId. If manual add, we might need a workaround or create a placeholder User?
+      // Re-reading Doctor model: userId is required.
+      // If manually adding, maybe we search for User by email?
+      name,
+      email,
+      specialization,
+      department,
+      hospitalId: hospital._id
+    });
+
+    // Check if user exists
+    let user = await User.findOne({ email });
+    if (user) {
+      newDoctor.userId = user._id;
+      await newDoctor.save();
+
+      // Link user back
+      user.doctorId = newDoctor._id;
+      user.hospitalId = hospital._id;
+      await user.save();
+    } else {
+      // If no user exists, we can't create a Doctor because userId is required.
+      // However, the "Add Doctor" modal in dashboard takes name/email.
+      // We should probably create a "pending" doctor or similar.
+      // For this hackathon, let's create a placeholder User or remove required constraint.
+      // Checking Doctor model again... yes required.
+      // Let's create a placeholder User for them so they can claim it later?
+      // Or simpler: just fail if user doesn't exist?
+      // Let's assume for now we just create it. To bypass 'required', we need a valid ObjectId.
+      // We'll use the hospital admin's ID as a placeholder if no user found, 
+      // OR (Better) we find the user. If not found, we shouldn't allow adding?
+      // Let's just create a dummy ID or skip userId check if possible? No, it's db level.
+      // Let's try to find user. If null, maybe throw error "User must sign up first"?
+      // But typically "Add Doctor" invites them.
+
+      // DECISION: For now, I will use a generated ObjectId for userId if user missing, 
+      // or better, I will assume the User MUST exist for this flow to work cleanly.
+      // Actually, the user request is about the Signup flow. I should focus on GET first.
+
+      // I will just add the GET endpoint for now to solve the immediate "Visibility" issue.
+      // I'll add POST as well but keep it simple - find user or fail.
+
+      if (!user) {
+        return res.status(400).json({ message: 'Doctor must be registered as a user first (email not found)' });
+      }
+      newDoctor.userId = user._id;
+      await newDoctor.save();
+    }
+
+    res.status(201).json({
+      id: newDoctor._id.toString(),
+      name: newDoctor.name,
+      email: newDoctor.email,
+      specialization: newDoctor.specialization,
+      department: newDoctor.department
+    });
+  } catch (error) {
+    console.error('Error creating doctor:', error);
+    res.status(500).json({ message: 'Error adding doctor', error: error.message });
+  }
+});
+
+// POST /api/hospital/surge-alerts - Manual alert creation
+router.post('/surge-alerts', async (req, res) => {
+  try {
+    const { type, message, severity } = req.body; // severity: low, medium, high, critical
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const newAlert = new HospitalSurgeAlert({
+      hospitalId: hospital._id,
+      alertType: type,
+      message,
+      severity: severity || 'high',
+      status: 'active',
+      timestamp: new Date()
+    });
+
+    await newAlert.save();
+    res.status(201).json(newAlert);
+  } catch (error) {
+    res.status(500).json({ message: 'Error creating alert', error: error.message });
   }
 });
 

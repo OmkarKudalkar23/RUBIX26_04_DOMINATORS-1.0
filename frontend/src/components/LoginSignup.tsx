@@ -40,11 +40,13 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
     education: "",
     certificateFile: null as File | null,
     aadhaarFile: null as File | null,
+    // Doctor specific fields
+    specialization: "",
     // Hospital specific fields
     hospitalName: "",
     registrationFile: null as File | null,
   });
-  
+
   // Add state for login/signup error messages
   const [loginError, setLoginError] = useState("");
   const [signupError, setSignupError] = useState("");
@@ -62,7 +64,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+
     // Handle login
     if (isLogin) {
       // Validate input
@@ -72,7 +74,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
       }
 
       setLoginError(""); // Clear previous errors
-      
+
       try {
         console.log('Attempting login with:', formData.email);
         const response = await fetch("http://localhost:5000/api/auth/login", {
@@ -94,10 +96,10 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
           setLoginError("Server returned invalid response. Please try again.");
           return;
         }
-        
+
         console.log('Login response status:', response.status);
         console.log('Login response data:', data);
-        
+
         if (response.ok && data.token && data.user) {
           // Clear any previous error
           setLoginError("");
@@ -106,16 +108,26 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
           localStorage.setItem('user', JSON.stringify(data.user));
           console.log('Login successful, user data:', data.user);
           console.log('Stored in localStorage:', JSON.parse(localStorage.getItem('user') || '{}'));
-          
+
           // Update URL with patient ID if user is a patient
           if (data.user.role === 'patient' && data.user.patientId) {
             const newUrl = `${window.location.origin}${window.location.pathname}?id=${data.user.patientId}`;
             window.history.pushState({}, '', newUrl);
             console.log('Updated URL with patient ID:', data.user.patientId);
           }
-          
-          // Call the onLogin callback with the user's role
-          onLogin(data.user.role);
+
+          // Check if user has a profile (patientId or doctorId)
+          // If not, show additional info form to complete profile
+          if (data.user.role === 'patient' && !data.user.patientId) {
+            console.log('Patient login successful but no profile found. Prompting for profile creation.');
+            setShowAdditionalInfo(true);
+          } else if (data.user.role === 'doctor' && !data.user.doctorId) {
+            console.log('Doctor login successful but no profile found. Prompting for profile creation.');
+            setShowAdditionalInfo(true);
+          } else {
+            // Call the onLogin callback with the user's role
+            onLogin(data.user.role);
+          }
         } else {
           // Set error message for invalid credentials
           const errorMsg = data.message || data.error || "Invalid email or password. Please try again.";
@@ -165,10 +177,10 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
           setSignupError("Server returned invalid response. Please try again.");
           return;
         }
-        
+
         console.log('Signup response status:', response.status);
         console.log('Signup response data:', data);
-        
+
         if (response.ok && data.token && data.user) {
           // Clear any previous error
           setSignupError("");
@@ -176,12 +188,12 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
           localStorage.setItem('token', data.token);
           localStorage.setItem('user', JSON.stringify(data.user));
           console.log('Signup successful, user data:', data.user);
-          
-          // For patient signup, show additional info form to create profile
-          if (userType === "patient") {
+
+          // For patient or doctor signup, show additional info form to create profile
+          if (userType === "patient" || userType === "doctor") {
             setShowAdditionalInfo(true);
           } else {
-            // For doctor/hospital, directly login after signup
+            // For hospital, directly login after signup (or show its own flow if needed)
             onLogin(userType);
           }
         } else {
@@ -200,10 +212,21 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
 
   const handleAdditionalInfoSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+
     // Validate required fields
-    if (!formData.age || !formData.gender || !formData.dob || !formData.bloodGroup) {
-      setSignupError("Please fill in all required fields (Age, Gender, Date of Birth, Blood Group)");
+    // Validate required fields
+    if (!formData.age || !formData.gender || !formData.dob) {
+      setSignupError("Please fill in all required fields (Age, Gender, Date of Birth)");
+      return;
+    }
+
+    if (userType === 'patient' && !formData.bloodGroup) {
+      setSignupError("Please select a Blood Group");
+      return;
+    }
+
+    if (userType === 'doctor' && !formData.specialization) {
+      setSignupError("Please enter Specialization");
       return;
     }
 
@@ -221,24 +244,35 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
       console.log('Creating patient profile for user:', user.id);
 
       // Create patient profile
-      const response = await fetch("http://localhost:5000/api/profiles/patient", {
+      // Create profile based on user role
+      let endpoint = "http://localhost:5000/api/profiles/patient";
+      let body: any = {
+        userId: user.id,
+        age: parseInt(formData.age),
+        gender: formData.gender,
+        dob: formData.dob,
+        phone: formData.phone || "",
+        address: formData.address || "",
+        education: formData.education || "",
+        certificateUrl: "", // File upload would be handled separately
+        aadhaarUrl: "", // File upload would be handled separately
+      };
+
+      if (userType === 'patient') {
+        body.bloodGroup = formData.bloodGroup;
+        body.medicalHistory = formData.medicalHistory ? formData.medicalHistory.split(',').map((h: string) => h.trim()) : [];
+      } else if (userType === 'doctor') {
+        endpoint = "http://localhost:5000/api/profiles/doctor";
+        body.name = user.name; // Include name for doctor profile
+        body.specialization = formData.specialization;
+      }
+
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          userId: user.id,
-          age: parseInt(formData.age),
-          gender: formData.gender,
-          dob: formData.dob,
-          bloodGroup: formData.bloodGroup,
-          phone: formData.phone || "",
-          address: formData.address || "",
-          education: formData.education || "",
-          medicalHistory: formData.medicalHistory ? formData.medicalHistory.split(',').map((h: string) => h.trim()) : [],
-          certificateUrl: "", // File upload would be handled separately
-          aadhaarUrl: "", // File upload would be handled separately
-        }),
+        body: JSON.stringify(body),
       });
 
       let data;
@@ -252,25 +286,39 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
 
       console.log('Profile creation response:', response.status, data);
 
-      if (response.ok && data.patient) {
-        // Update user with patientId
-        const patientId = data.patient._id || data.patient.id;
-        const updatedUser = {
-          ...user,
-          patientId: patientId
-        };
-        localStorage.setItem('user', JSON.stringify(updatedUser));
-        console.log('Patient profile created, updated user:', updatedUser);
-        
-        // Update URL with patient ID
-        const newUrl = `${window.location.origin}${window.location.pathname}?id=${patientId}`;
-        window.history.pushState({}, '', newUrl);
-        console.log('Updated URL with patient ID:', patientId);
-        
-        // Clear any previous error
-        setSignupError("");
-        // Call the onLogin callback with the user's role
-        onLogin("patient");
+      if (response.ok) {
+        if (data.patient) {
+          // Update user with patientId
+          const patientId = data.patient._id || data.patient.id;
+          const updatedUser = {
+            ...user,
+            patientId: patientId
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          console.log('Patient profile created, updated user:', updatedUser);
+
+          // Update URL with patient ID
+          const newUrl = `${window.location.origin}${window.location.pathname}?id=${patientId}`;
+          window.history.pushState({}, '', newUrl);
+          console.log('Updated URL with patient ID:', patientId);
+
+          // Clear any previous error
+          setSignupError("");
+          // Call the onLogin callback with the user's role
+          onLogin("patient");
+        } else if (data.doctor) {
+          // Update user with doctorId
+          const doctorId = data.doctor._id || data.doctor.id;
+          const updatedUser = {
+            ...user,
+            doctorId: doctorId
+          };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          console.log('Doctor profile created, updated user:', updatedUser);
+
+          setSignupError("");
+          onLogin("doctor");
+        }
       } else {
         const errorMsg = data.message || data.error || "Failed to create profile. Please try again.";
         setSignupError(errorMsg);
@@ -301,24 +349,24 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
 
   // Handle doctor data changes
   const handleDoctorChange = (id: string, field: keyof DoctorData, value: string) => {
-    setDoctors(doctors.map(doc => 
+    setDoctors(doctors.map(doc =>
       doc.id === id ? { ...doc, [field]: value } : doc
     ));
   };
 
   const handleDoctorFileChange = (id: string, field: "certificateFile" | "aadhaarFile", file: File) => {
-    setDoctors(doctors.map(doc => 
+    setDoctors(doctors.map(doc =>
       doc.id === id ? { ...doc, [field]: file } : doc
     ));
   };
 
   const addDoctor = () => {
-    setDoctors([...doctors, { 
-      id: Date.now().toString(), 
-      name: "", 
-      specialization: "", 
-      certificateFile: null, 
-      aadhaarFile: null 
+    setDoctors([...doctors, {
+      id: Date.now().toString(),
+      name: "",
+      specialization: "",
+      certificateFile: null,
+      aadhaarFile: null
     }]);
   };
 
@@ -330,7 +378,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
 
   // Handle bed type changes
   const handleBedTypeChange = (id: string, count: number) => {
-    setBedTypes(bedTypes.map(bed => 
+    setBedTypes(bedTypes.map(bed =>
       bed.id === id ? { ...bed, count: Math.max(0, count) } : bed
     ));
   };
@@ -342,21 +390,21 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] bg-white flex items-center justify-center p-4"
     >
-      <div className="w-full h-full flex items-center justify-center">
+      <div className="w-full h-full flex items-start justify-center pt-4 md:pt-12 overflow-y-auto scrollbar-hide">
         {/* Close Button */}
         <motion.button
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2 }}
           onClick={onClose}
-          className="fixed top-4 right-4 md:top-6 md:right-6 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors z-50"
+          className="fixed top-4 right-4 md:top-6 md:right-6 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black text-white flex items-center justify-center hover:bg-gray-800 transition-colors z-50 shadow-lg"
         >
           <X className="w-5 h-5 md:w-6 md:h-6" />
         </motion.button>
 
         {/* Main Content */}
-        <div className="w-full max-w-md flex flex-col justify-center">
-          {/* Show Additional Info Form for Patient Signup */}
+        <div className="w-full max-w-md flex flex-col justify-start pb-10">
+          {/* Show Additional Info Form for Patient/Doctor Signup */}
           {showAdditionalInfo ? (
             <AnimatePresence mode="wait">
               <motion.div
@@ -390,7 +438,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                       {signupError}
                     </div>
                   )}
-                  
+
                   {/* Hospital Name (Hospital Only) */}
                   {userType === "hospital" && (
                     <div>
@@ -602,6 +650,27 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                           </div>
                         </div>
                       </div>
+
+                      {/* Specialization (Doctor Only) */}
+                      {userType === "doctor" && (
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-1.5 uppercase tracking-wider">
+                            Specialization
+                          </label>
+                          <div className="relative">
+                            <Stethoscope className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <input
+                              type="text"
+                              name="specialization"
+                              value={formData.specialization}
+                              onChange={handleInputChange}
+                              placeholder="Cardiology, Pediatrics..."
+                              className="w-full pl-12 pr-4 py-3 bg-gray-50 rounded-xl transition-all outline-none"
+                              required
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Date of Birth */}
                       <div>
@@ -835,22 +904,20 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
               >
                 <button
                   onClick={() => setIsLogin(true)}
-                  className={`flex-1 py-3 rounded-xl transition-all uppercase text-sm tracking-wide ${
-                    isLogin
-                      ? "bg-black text-white shadow-lg"
-                      : "bg-transparent text-gray-600 hover:text-black"
-                  }`}
+                  className={`flex-1 py-3 rounded-xl transition-all uppercase text-sm tracking-wide ${isLogin
+                    ? "bg-black text-white shadow-lg"
+                    : "bg-transparent text-gray-600 hover:text-black"
+                    }`}
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                 >
                   Login
                 </button>
                 <button
                   onClick={() => setIsLogin(false)}
-                  className={`flex-1 py-3 rounded-xl transition-all uppercase text-sm tracking-wide ${
-                    !isLogin
-                      ? "bg-black text-white shadow-lg"
-                      : "bg-transparent text-gray-600 hover:text-black"
-                  }`}
+                  className={`flex-1 py-3 rounded-xl transition-all uppercase text-sm tracking-wide ${!isLogin
+                    ? "bg-black text-white shadow-lg"
+                    : "bg-transparent text-gray-600 hover:text-black"
+                    }`}
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                 >
                   Sign Up
@@ -894,56 +961,55 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                     </motion.div>
                   )}
 
-                  {/* User Type Selector */}
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-2 uppercase tracking-wider">
-                      I am a
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setUserType("patient")}
-                        className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
-                          userType === "patient"
+                  {/* User Type Selector (Sign Up Only) */}
+                  {!isLogin && (
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-2 uppercase tracking-wider">
+                        I am a
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setUserType("patient")}
+                          className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${userType === "patient"
                             ? "bg-black text-white border-black"
                             : "bg-gray-50 text-gray-600 border-transparent hover:border-gray-200"
-                        }`}
-                      >
-                        <UserCircle className="w-5 h-5" />
-                        <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                          Patient
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUserType("doctor")}
-                        className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
-                          userType === "doctor"
+                            }`}
+                        >
+                          <UserCircle className="w-5 h-5" />
+                          <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                            Patient
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUserType("doctor")}
+                          className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${userType === "doctor"
                             ? "bg-black text-white border-black"
                             : "bg-gray-50 text-gray-600 border-transparent hover:border-gray-200"
-                        }`}
-                      >
-                        <Stethoscope className="w-5 h-5" />
-                        <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                          Doctor
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setUserType("hospital")}
-                        className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
-                          userType === "hospital"
+                            }`}
+                        >
+                          <Stethoscope className="w-5 h-5" />
+                          <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                            Doctor
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setUserType("hospital")}
+                          className={`py-3 px-2 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${userType === "hospital"
                             ? "bg-black text-white border-black"
                             : "bg-gray-50 text-gray-600 border-transparent hover:border-gray-200"
-                        }`}
-                      >
-                        <Building2 className="w-5 h-5" />
-                        <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
-                          Hospital
-                        </span>
-                      </button>
+                            }`}
+                        >
+                          <Building2 className="w-5 h-5" />
+                          <span className="text-xs uppercase tracking-wide" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                            Hospital
+                          </span>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Email Field */}
                   <div>
@@ -1084,7 +1150,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                   </motion.button>
                 </motion.form>
               </AnimatePresence>
-              
+
               {/* Additional Info Form */}
               {showAdditionalInfo ? (
                 <AnimatePresence mode="wait">
@@ -1119,7 +1185,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                           {signupError}
                         </div>
                       )}
-                      
+
                       {/* Hospital Name (Hospital Only) */}
                       {userType === "hospital" && (
                         <div>
@@ -1532,7 +1598,7 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
                   </motion.div>
                 </AnimatePresence>
               ) : null}
-              
+
             </>
           )}
         </div>
@@ -1540,12 +1606,12 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
         {/* Decorative Elements */}
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ 
-            opacity: 1, 
+          animate={{
+            opacity: 1,
             scale: [1, 1.1, 1],
             y: [0, -20, 0]
           }}
-          transition={{ 
+          transition={{
             delay: 0.5,
             duration: 8,
             repeat: Infinity,
@@ -1555,12 +1621,12 @@ export function LoginSignup({ onClose, onLogin }: LoginSignupProps) {
         />
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ 
-            opacity: 1, 
+          animate={{
+            opacity: 1,
             scale: [1, 1.15, 1],
             y: [0, 20, 0]
           }}
-          transition={{ 
+          transition={{
             delay: 0.6,
             duration: 9,
             repeat: Infinity,

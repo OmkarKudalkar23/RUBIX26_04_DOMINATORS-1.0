@@ -36,9 +36,9 @@ interface Appointment {
   status?: string;
 }
 
-interface MedicalRecord {
+export interface MedicalRecord {
   id: string;
-  type: string;
+  type: "prescription" | "report" | "xray" | "ct-scan" | "mri" | "lab-result" | "other";
   fileName: string;
   fileUrl: string;
   uploadDate: string;
@@ -202,7 +202,7 @@ export const getPatientData = async (patientId: string): Promise<PatientSnapshot
       };
     }
     const data = await response.json();
-    
+
     // Safely transform all data to frontend format
     try {
       return {
@@ -322,20 +322,20 @@ export const getPatientProfile = async (patientId: string, userId?: string): Pro
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
     };
-    
+
     // Add authorization header if token is available
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    
+
     // Build URL with userId query param if available (as fallback if patientId doesn't work)
     let url = `${API_BASE_URL}/${patientId}/profile`;
     if (userId) {
       url += `?userId=${userId}`;
     }
-    
+
     console.log('Fetching patient profile:', { patientId, userId, url });
-    
+
     const response = await fetch(url, {
       headers,
     });
@@ -454,20 +454,20 @@ export const getRoute = async (
       return null;
     }
     const routeData = await response.json();
-    
+
     // Handle OSRM format: { routes: [{ distance, duration, geometry: { coordinates: [[lng, lat], ...] } }] }
     if (routeData.routes && routeData.routes.length > 0) {
       const route = routeData.routes[0];
       // OSRM returns coordinates as [lng, lat] in geometry.coordinates, convert to [lat, lng] for Leaflet
       const coords = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
-      
+
       return {
         coords,
         distance: (route.distance || 0) / 1000, // Convert meters to km
         duration: Math.round((route.duration || 0) / 60), // Convert seconds to minutes
       };
     }
-    
+
     return null;
   } catch (error) {
     console.error('Error fetching route:', error);
@@ -522,9 +522,9 @@ export const createPrediction = async (
   try {
     console.log('Creating prediction for patientId:', patientId, 'type:', type);
     console.log('Prediction inputs:', inputs);
-    
+
     const url = `http://localhost:5000/api/patient/${patientId}/predictions`;
-    
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -532,16 +532,16 @@ export const createPrediction = async (
       },
       body: JSON.stringify({ type, inputs }),
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Prediction API error:', response.status, errorText);
       throw new Error(`Failed to create prediction: ${response.status} - ${errorText}`);
     }
-    
+
     const prediction = await response.json();
     console.log('Prediction created successfully:', prediction);
-    
+
     // Transform to frontend format
     return transformPrediction(prediction);
   } catch (error) {
@@ -645,15 +645,7 @@ export const getHealthAlerts = async () => {
 // Medical Records API
 
 // Interface matching backend response
-export interface MedicalRecord {
-  id: string;
-  type: "prescription" | "report" | "xray" | "ct-scan" | "mri" | "lab-result" | "other";
-  fileName: string;
-  fileUrl: string;
-  uploadDate: string;
-  summary?: string;
-  extractedData?: any;
-}
+// Interface moved to top of file
 
 // Get all medical records for logged-in doctor
 export const getDoctorMedicalRecords = async (): Promise<MedicalRecord[]> => {
@@ -662,8 +654,8 @@ export const getDoctorMedicalRecords = async (): Promise<MedicalRecord[]> => {
     // Transform fileUrl to full URL if needed
     return records.map((record: any) => ({
       ...record,
-      fileUrl: record.fileUrl.startsWith('http') 
-        ? record.fileUrl 
+      fileUrl: record.fileUrl.startsWith('http')
+        ? record.fileUrl
         : `http://localhost:5000${record.fileUrl}`
     }));
   } catch (error) {
@@ -710,8 +702,8 @@ export const uploadDoctorMedicalRecord = async (
     // Transform fileUrl to full URL if needed
     return {
       ...record,
-      fileUrl: record.fileUrl.startsWith('http') 
-        ? record.fileUrl 
+      fileUrl: record.fileUrl.startsWith('http')
+        ? record.fileUrl
         : `http://localhost:5000${record.fileUrl}`
     };
   } catch (error) {
@@ -764,10 +756,16 @@ const hospitalApiRequest = async (endpoint: string, options: RequestInit = {}) =
 // Beds
 export interface BedData {
   id: string;
-  type: "ICU" | "General" | "Private" | "Emergency";
+  type: string; // e.g., "ICU", "General", "Emergency"
   total: number;
   occupied: number;
   available: number;
+  beds?: Array<{
+    number: number;
+    status: 'available' | 'occupied' | 'maintenance';
+    patientId?: string;
+    admissionId?: string;
+  }>;
 }
 
 export const getHospitalBeds = async (): Promise<BedData[]> => {
@@ -781,7 +779,7 @@ export const getHospitalBeds = async (): Promise<BedData[]> => {
 
 export const updateHospitalBed = async (
   id: string,
-  payload: Partial<Pick<BedData, "total" | "occupied" | "available">> & { action?: "occupy" | "release" }
+  payload: Partial<Pick<BedData, "total" | "occupied" | "available">> & { action?: "occupy" | "release" | "add-bed" }
 ): Promise<BedData> => {
   try {
     return await hospitalApiRequest(`/beds/${id}`, {
@@ -790,6 +788,19 @@ export const updateHospitalBed = async (
     });
   } catch (error) {
     console.error('Error updating hospital bed:', error);
+    throw error;
+  }
+};
+
+
+export const createHospitalBed = async (data: { type: string; total: number }): Promise<BedData> => {
+  try {
+    return await hospitalApiRequest('/beds', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    console.error('Error creating bed type:', error);
     throw error;
   }
 };
@@ -986,6 +997,106 @@ export const changeHospitalPassword = async (payload: {
   }
 };
 
+// OPD Queue Management
+export interface OpdCheckIn {
+  id: string;
+  patientName: string;
+  department: string;
+  doctorName: string;
+  visitType: 'OPD' | 'Emergency' | 'Follow-up';
+  status: 'waiting' | 'in-consultation' | 'completed';
+  priority: 'normal' | 'high' | 'emergency';
+  queueNumber: number;
+  checkInTime: string;
+  notes?: string;
+}
+
+export const checkInOpdPatient = async (data: {
+  patientName: string;
+  department: string;
+  doctorName?: string;
+  visitType?: 'OPD' | 'Emergency' | 'Follow-up';
+  priority?: 'normal' | 'high' | 'emergency';
+  appointmentId?: string;
+}): Promise<OpdCheckIn> => {
+  try {
+    return await hospitalApiRequest('/opd/check-in', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    console.error('Error checking in OPD patient:', error);
+    throw error;
+  }
+};
+
+export const getOpdQueue = async (date?: string): Promise<OpdCheckIn[]> => {
+  try {
+    const queryParam = date ? `?date=${date}` : '';
+    return await hospitalApiRequest(`/opd/queue${queryParam}`);
+  } catch (error) {
+    console.error('Error fetching OPD queue:', error);
+    throw error;
+  }
+};
+
+export const updateOpdQueueEntry = async (
+  id: string,
+  updates: {
+    status?: 'waiting' | 'in-consultation' | 'completed';
+    priority?: 'normal' | 'high' | 'emergency';
+    doctorName?: string;
+    notes?: string;
+  }
+): Promise<OpdCheckIn> => {
+  try {
+    return await hospitalApiRequest(`/opd/queue/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  } catch (error) {
+    console.error('Error updating OPD queue entry:', error);
+    throw error;
+  }
+};
+
+// Hospital Doctors (linked to hospital by domain)
+export interface HospitalDoctor {
+  id: string;
+  name: string;
+  email: string;
+  specialization: string | null;
+  department: string | null;
+  available: boolean;
+}
+
+export const getHospitalDoctors = async (): Promise<HospitalDoctor[]> => {
+  try {
+    return await hospitalApiRequest('/doctors');
+  } catch (error) {
+    console.error('Error fetching hospital doctors:', error);
+    throw error;
+  }
+};
+
+
+export const createHospitalDoctor = async (data: {
+  name: string;
+  email: string;
+  specialization: string;
+  department: string;
+}): Promise<HospitalDoctor> => {
+  try {
+    return await hospitalApiRequest('/doctors', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    console.error('Error creating hospital doctor:', error);
+    throw error;
+  }
+};
+
 // ============================================
 // Early Warning System API
 // ============================================
@@ -1033,7 +1144,7 @@ export const getEarlyWarning = async (city: string, date?: string): Promise<Quic
   try {
     const url = `${EARLY_WARNING_API_BASE}/early-warning/${city}`;
     const params = date ? `?date=${encodeURIComponent(date)}` : '';
-    
+
     const response = await fetch(url + params, {
       method: 'GET',
       headers: {
@@ -1078,6 +1189,43 @@ export const getFullEarlyWarning = async (city: string, date?: string): Promise<
   }
 };
 
+// Manual Appointment Creation (Admin)
+export const createHospitalAppointment = async (data: {
+  patientName: string;
+  doctorName: string;
+  department: string;
+  date: string;
+  time: string;
+  type: string;
+}): Promise<HospitalAppointment> => {
+  try {
+    return await hospitalApiRequest('/appointments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    console.error('Error creating appointment:', error);
+    throw error;
+  }
+};
+
+// Manual Surge Alert Creation (Admin)
+export const createHospitalSurgeAlert = async (data: {
+  type: string;
+  message: string;
+  severity: string;
+}): Promise<SurgeAlert> => {
+  try {
+    return await hospitalApiRequest('/surge-alerts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    console.error('Error creating surge alert:', error);
+    throw error;
+  }
+};
+
 /**
  * Get hospital load forecast for a city
  */
@@ -1085,7 +1233,7 @@ export const getHospitalLoad = async (city: string, diseaseType?: string): Promi
   try {
     const url = `${EARLY_WARNING_API_BASE}/hospital-load/${city}`;
     const params = diseaseType ? `?disease_type=${encodeURIComponent(diseaseType)}` : '';
-    
+
     const response = await fetch(url + params, {
       method: 'GET',
       headers: {
@@ -1136,7 +1284,7 @@ export const getCurrentSignals = async (city: string, date?: string): Promise<an
   try {
     const url = `${EARLY_WARNING_API_BASE}/signals/${city}`;
     const params = date ? `?date=${encodeURIComponent(date)}` : '';
-    
+
     const response = await fetch(url + params, {
       method: 'GET',
       headers: {

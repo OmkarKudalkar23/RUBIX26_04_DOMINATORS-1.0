@@ -37,13 +37,13 @@ export function LandingPage({ onLogin }: LandingPageProps) {
   useEffect(() => {
     const generateBubbles = () => {
       const medicalEmojis = ['💊', '💉', '🩺', '⚕️', '❤️', '🏥', '🧬', '🩹'];
-      
+
       const newBubbles: Bubble[] = [];
-      
+
       // Responsive grid based on screen width
       const screenWidth = window.innerWidth;
       let cols, rows;
-      
+
       if (screenWidth < 640) {
         // Mobile: 5x6 = 30 bubbles
         cols = 5;
@@ -57,16 +57,16 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         cols = 10;
         rows = 9;
       }
-      
+
       const spacingX = 100 / cols;
       const spacingY = 100 / rows;
-      
+
       let id = 0;
       for (let row = 0; row < rows; row++) {
         for (let col = 0; col < cols; col++) {
           const hasEmoji = Math.random() > 0.7; // 30% chance
           const depth = 0.3 + Math.random() * 0.7;
-          
+
           // Responsive bubble size
           let baseSize, sizeVariation;
           if (screenWidth < 640) {
@@ -79,7 +79,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             baseSize = 45;
             sizeVariation = 35;
           }
-          
+
           newBubbles.push({
             id: id++,
             x: (col * spacingX) + (spacingX / 2) + (Math.random() - 0.5) * 2,
@@ -98,12 +98,12 @@ export function LandingPage({ onLogin }: LandingPageProps) {
     };
 
     generateBubbles();
-    
+
     // Regenerate bubbles on resize for responsive grid
     const handleResize = () => {
       generateBubbles();
     };
-    
+
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -118,7 +118,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
 
     updateCanvasSize();
     window.addEventListener('resize', updateCanvasSize);
-    
+
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, []);
 
@@ -129,13 +129,13 @@ export function LandingPage({ onLogin }: LandingPageProps) {
 
     const handleMouseMove = (e: MouseEvent) => {
       const now = Date.now();
-      
+
       if (now - lastUpdate < throttleDelay) {
         return;
       }
-      
+
       lastUpdate = now;
-      
+
       setMousePosition({
         x: (e.clientX / window.innerWidth - 0.5) * 2,
         y: (e.clientY / window.innerHeight - 0.5) * 2,
@@ -158,40 +158,40 @@ export function LandingPage({ onLogin }: LandingPageProps) {
 
     updateFooterPosition();
     window.addEventListener('resize', updateFooterPosition);
-    
+
     return () => window.removeEventListener('resize', updateFooterPosition);
   }, []);
 
   const bgOpacity = useTransform(scrollY, [300, 500, 1000, 1200], [0, 0.3, 0.3, 0]);
-  
+
   const textScale = useTransform(
-    scrollY, 
-    [0, 400, footerScrollStart, footerScrollStart + 300], 
+    scrollY,
+    [0, 400, footerScrollStart, footerScrollStart + 300],
     [1, 0.18, 0.18, 0.8]
   );
-  
+
   const textX = useTransform(
-    scrollY, 
-    [0, 400, footerScrollStart, footerScrollStart + 300], 
+    scrollY,
+    [0, 400, footerScrollStart, footerScrollStart + 300],
     [0, typeof window !== 'undefined' ? -window.innerWidth * 0.35 : -600, typeof window !== 'undefined' ? -window.innerWidth * 0.35 : -600, 0]
   );
-  
+
   const textY = useTransform(
-    scrollY, 
-    [0, 400, footerScrollStart, footerScrollStart + 300], 
+    scrollY,
+    [0, 400, footerScrollStart, footerScrollStart + 300],
     [0, typeof window !== 'undefined' ? -window.innerHeight * 0.42 : -280, typeof window !== 'undefined' ? -window.innerHeight * 0.42 : -280, typeof window !== 'undefined' ? -window.innerHeight * 0.15 : -100]
   );
-  
+
   const textColorProgress = useTransform(
     scrollY,
     [footerScrollStart, footerScrollStart + 150],
     [0, 1]
   );
-  
+
   const subtitleOpacity = useTransform(scrollY, [0, 200], [1, 0]);
   const imagesOpacity = useTransform(scrollY, [0, 400], [1, 0]);
   const statsOpacity = useTransform(scrollY, [300, 500, 800, 1000], [0, 1, 1, 0]);
-  
+
   const footerSubtitleOpacity = useTransform(
     scrollY,
     [footerScrollStart + 150, footerScrollStart + 300],
@@ -228,11 +228,11 @@ export function LandingPage({ onLogin }: LandingPageProps) {
   return (
     <div className="relative min-h-[300vh] bg-white overflow-hidden">
       {/* Background Pattern - Appears on Scroll */}
-      <motion.div 
+      <motion.div
         className="fixed inset-0 z-0"
         style={{ opacity: bgOpacity }}
       >
-        <div 
+        <div
           className="w-full h-full bg-cover bg-center"
           style={{
             backgroundImage: `url(${bgPattern})`,
@@ -252,11 +252,11 @@ export function LandingPage({ onLogin }: LandingPageProps) {
           }}
         >
           <div className="text-center relative">
-            <motion.h1 
+            <motion.h1
               className="relative whitespace-nowrap"
               initial={{ opacity: 0, y: 20 }}
-              animate={{ 
-                opacity: 1, 
+              animate={{
+                opacity: 1,
                 y: 0,
               }}
               transition={{ duration: 0.5 }}
@@ -272,12 +272,12 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             >
               HEALTH
             </motion.h1>
-            
-            <motion.h1 
+
+            <motion.h1
               className="relative whitespace-nowrap"
               initial={{ opacity: 0, y: 20 }}
-              animate={{ 
-                opacity: 1, 
+              animate={{
+                opacity: 1,
                 y: 0,
               }}
               transition={{ duration: 0.5 }}
@@ -294,7 +294,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             >
               SYNC
             </motion.h1>
-            
+
             <motion.p
               className="tracking-widest uppercase"
               style={{
@@ -313,9 +313,9 @@ export function LandingPage({ onLogin }: LandingPageProps) {
       </motion.div>
 
       {/* 3D Animated Medical Spheres Field - OPTIMIZED with Hardware Acceleration */}
-      <motion.div 
+      <motion.div
         className="fixed inset-0 z-10 pointer-events-none overflow-hidden"
-        style={{ 
+        style={{
           opacity: imagesOpacity,
           transform: 'translateZ(0)', // Hardware acceleration
           willChange: 'opacity',
@@ -325,7 +325,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
           const Icon = bubble.icon;
           const parallaxMultiplier = 20 + (bubble.depth * 80);
           const scaleMultiplier = 0.6 + (bubble.depth * 0.7);
-          
+
           return (
             <motion.div
               key={bubble.id}
@@ -366,9 +366,9 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                   }}
                 >
                   {/* 3D Sphere with gradient and shadow - RESTORED */}
-                  <div 
+                  <div
                     className={`absolute inset-0 bg-gradient-to-br ${bubble.color} rounded-full`}
-                    style={{ 
+                    style={{
                       boxShadow: `
                         0 ${10 + bubble.depth * 20}px ${30 + bubble.depth * 40}px rgba(0,0,0,${0.08 + bubble.depth * 0.1}),
                         inset 0 -${5 + bubble.depth * 10}px ${15 + bubble.depth * 20}px rgba(255,255,255,${0.3 + bubble.depth * 0.2}),
@@ -377,18 +377,18 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                       transform: 'translateZ(0)',
                     }}
                   />
-                  
+
                   {/* Inner glow for 3D effect - RESTORED */}
-                  <div 
+                  <div
                     className="absolute inset-[15%] rounded-full opacity-40"
                     style={{
                       background: `radial-gradient(circle at 30% 30%, rgba(255,255,255,${0.6 + bubble.depth * 0.4}), transparent 70%)`,
                     }}
                   />
-                  
+
                   {/* Emoji if present */}
                   {Icon && (
-                    <div 
+                    <div
                       className="absolute inset-0 flex items-center justify-center text-center"
                       style={{
                         fontSize: `${(bubble.size * scaleMultiplier) * 0.45}px`,
@@ -437,7 +437,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
         >
           <div className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl mb-4">
             {/* HEALTHCARE with typing animation */}
-            <motion.span 
+            <motion.span
               className="block uppercase tracking-tight overflow-hidden"
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
               initial={{ opacity: 0 }}
@@ -455,9 +455,9 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 </motion.span>
               ))}
             </motion.span>
-            
+
             {/* MADE with typing animation */}
-            <motion.span 
+            <motion.span
               className="block uppercase tracking-tight overflow-hidden"
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
               initial={{ opacity: 0 }}
@@ -475,11 +475,11 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 </motion.span>
               ))}
             </motion.span>
-            
+
             {/* simple with typing animation and metal shining effect */}
-            <motion.span 
+            <motion.span
               className="block tracking-tight relative"
-              style={{ 
+              style={{
                 fontFamily: "'Dancing Script', cursive",
                 fontWeight: "700",
               }}
@@ -520,7 +520,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               ))}
             </motion.span>
           </div>
-          
+
           {/* Button appears after typing animation completes */}
           <motion.button
             initial={{ opacity: 0, y: 20 }}
@@ -544,27 +544,27 @@ export function LandingPage({ onLogin }: LandingPageProps) {
       >
         <div className="text-center">
           {/* Title */}
-          <motion.div 
+          <motion.div
             className="text-4xl sm:text-5xl mb-8"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            <span 
+            <span
               className="block uppercase tracking-tight"
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
             >
               HEALTHCARE
             </span>
-            <span 
+            <span
               className="block uppercase tracking-tight"
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
             >
               MADE
             </span>
-            <span 
+            <span
               className="block tracking-tight"
-              style={{ 
+              style={{
                 fontFamily: "'Dancing Script', cursive",
                 fontWeight: "700",
               }}
@@ -574,7 +574,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
           </motion.div>
 
           {/* Stats Cards */}
-          <motion.div 
+          <motion.div
             className="grid grid-cols-2 gap-4 mb-8 max-w-sm mx-auto"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -584,12 +584,12 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               <div className="text-3xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>50K+</div>
               <div className="text-xs text-slate-600">Patients</div>
             </div>
-            
+
             <div className="bg-white rounded-2xl shadow-xl p-4 border border-slate-100">
               <div className="text-3xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>1000+</div>
               <div className="text-xs text-slate-600">Doctors</div>
             </div>
-            
+
             <div className="bg-white rounded-2xl shadow-xl p-4 border border-slate-100 col-span-2">
               <div className="flex items-center justify-center gap-2 mb-1">
                 <Star className="w-6 h-6 text-amber-500 fill-amber-500" strokeWidth={1.5} />
@@ -793,23 +793,23 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             >
               ABOUT US
             </motion.h2>
-            
+
             <div className="space-y-6 sm:space-y-8 text-black text-base sm:text-lg leading-relaxed px-4 sm:px-0">
               <p>
-                Health Sync is revolutionizing the healthcare industry with cutting-edge technology 
-                and compassionate care. Our platform connects patients with top medical professionals, 
+                Health Sync is revolutionizing the healthcare industry with cutting-edge technology
+                and compassionate care. Our platform connects patients with top medical professionals,
                 making healthcare accessible, efficient, and personalized for everyone.
               </p>
-              
+
               <p>
-                With over 50,000 satisfied patients and a network of 1,000+ qualified doctors, we've 
-                built a trusted ecosystem that prioritizes your health and well-being. Our 4.9-star 
+                With over 50,000 satisfied patients and a network of 1,000+ qualified doctors, we've
+                built a trusted ecosystem that prioritizes your health and well-being. Our 4.9-star
                 rating reflects our commitment to excellence in every interaction.
               </p>
-              
+
               <p>
-                Founded on the principle that healthcare should be simple, transparent, and available 
-                to all, Health Sync leverages advanced AI and telemedicine to bridge the gap between 
+                Founded on the principle that healthcare should be simple, transparent, and available
+                to all, Health Sync leverages advanced AI and telemedicine to bridge the gap between
                 patients and providers. Experience the future of healthcare today.
               </p>
             </div>
@@ -823,8 +823,8 @@ export function LandingPage({ onLogin }: LandingPageProps) {
           </div>
 
           {/* Scratch Card Overlay */}
-          <ScratchCard 
-            width={canvasSize.width} 
+          <ScratchCard
+            width={canvasSize.width}
             height={canvasSize.height}
           />
         </div>
