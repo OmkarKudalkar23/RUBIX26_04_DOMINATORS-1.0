@@ -1,0 +1,288 @@
+            {/* City Dashboard Tab */}
+            {activeTab === "city" && (
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h2
+                      className="text-2xl md:text-3xl uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
+                    >
+                      City-Wide Hospital Dashboard
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Real-time capacity monitoring across all hospitals
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        setCentralizedLoading(true);
+                        const data = await getCentralizedHospitalCapacity();
+                        setCentralizedData(data);
+                        toast.success("Data refreshed");
+                      } catch (error) {
+                        toast.error("Failed to refresh data");
+                      } finally {
+                        setCentralizedLoading(false);
+                      }
+                    }}
+                    disabled={centralizedLoading}
+                    className="px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide disabled:opacity-50"
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    {centralizedLoading ? "Refreshing..." : "Refresh Data"}
+                  </button>
+                </div>
+
+                {centralizedLoading && !centralizedData && (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="w-12 h-12 border-4 border-gray-200 border-t-black rounded-full animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading city dashboard...</p>
+                    </div>
+                  </div>
+                )}
+
+                {centralizedData && (
+                  <>
+                    {/* City Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl p-6"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="p-3 bg-white rounded-xl">
+                            <BedDouble className="w-6 h-6 text-purple-600" />
+                          </div>
+                          <span className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                            {centralizedData.citySummary.totalBeds}
+                          </span>
+                        </div>
+                        <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                          Total Beds
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          {centralizedData.citySummary.availableBeds} available
+                        </p>
+                      </motion.div>
+
+                      <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-2xl p-6"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="p-3 bg-white rounded-xl">
+                            <Calendar className="w-6 h-6 text-pink-600" />
+                          </div>
+                          <span className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                            {centralizedData.citySummary.todayAppointments}
+                          </span>
+                        </div>
+                        <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                          OPD Today
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          Last 7 days: {centralizedData.citySummary.last7DaysAppointments}
+                        </p>
+                      </motion.div>
+
+                      <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-2xl p-6"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="p-3 bg-white rounded-xl">
+                            <Users className="w-6 h-6 text-orange-600" />
+                          </div>
+                          <span className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                            {centralizedData.citySummary.todayAdmissions}
+                          </span>
+                        </div>
+                        <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                          Admissions Today
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          {centralizedData.citySummary.pendingAdmissions} pending
+                        </p>
+                      </motion.div>
+
+                      <motion.div
+                        whileHover={{ y: -4 }}
+                        className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-2xl p-6"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="p-3 bg-white rounded-xl">
+                            <Hospital className="w-6 h-6 text-cyan-600" />
+                          </div>
+                          <span className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                            {centralizedData.hospitals.length}
+                          </span>
+                        </div>
+                        <h3 className="text-sm uppercase tracking-wide mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}>
+                          Active Hospitals
+                        </h3>
+                        <p className="text-xs text-gray-600">
+                          {((centralizedData.citySummary.occupiedBeds / centralizedData.citySummary.totalBeds) * 100).toFixed(1)}% Occupancy
+                        </p>
+                      </motion.div>
+                    </div>
+
+                    {/* Charts */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Occupancy Chart */}
+                      <div className="bg-white rounded-2xl p-6 border border-gray-200">
+                        <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Doto', sans-serif" }}>
+                          Hospital Occupancy Rates
+                        </h3>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={centralizedData.hospitals.map(h => ({
+                            name: h.name.substring(0, 15) + "...",
+                            occupancy: h.bedSummary.totalBeds > 0 ? (h.bedSummary.occupiedBeds / h.bedSummary.totalBeds) * 100 : 0
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" style={{ fontSize: "12px" }} />
+                            <YAxis />
+                            <Tooltip />
+                            <Bar dataKey="occupancy" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* OPD Load Chart */}
+                      <div className="bg-white rounded-2xl p-6 border border-gray-200">
+                        <h3 className="text-lg font-semibold mb-4" style={{ fontFamily: "'Doto', sans-serif" }}>
+                          OPD Patient Load
+                        </h3>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={centralizedData.hospitals.map(h => ({
+                            name: h.name.substring(0, 12) + "...",
+                            today: h.opdLoad.today.total,
+                            last7Days: h.opdLoad.last7Days.total
+                          }))}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" style={{ fontSize: "12px" }} />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="today" stroke="#ec4899" strokeWidth={2} />
+                            <Line type="monotone" dataKey="last7Days" stroke="#8b5cf6" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Hospital List */}
+                    <div className="space-y-4">
+                      <h3 className="text-xl font-semibold" style={{ fontFamily: "'Doto', sans-serif" }}>
+                        Hospital Details
+                      </h3>
+                      {centralizedData.hospitals.map((hospital, index) => {
+                        const occupancyRate = hospital.bedSummary.totalBeds > 0 
+                          ? (hospital.bedSummary.occupiedBeds / hospital.bedSummary.totalBeds) * 100 
+                          : 0;
+                        const status = occupancyRate >= 80 ? "high" : occupancyRate >= 50 ? "medium" : "low";
+
+                        return (
+                          <motion.div
+                            key={hospital.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="bg-white rounded-2xl p-6 border border-gray-200 hover:shadow-lg transition-shadow"
+                          >
+                            <div className="flex flex-col lg:flex-row gap-6">
+                              {/* Hospital Info */}
+                              <div className="flex-1">
+                                <div className="flex items-start justify-between mb-4">
+                                  <div>
+                                    <h4 className="text-lg font-bold mb-1">{hospital.name}</h4>
+                                    <p className="text-sm text-gray-600">{hospital.address}</p>
+                                  </div>
+                                  <div
+                                    className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                      status === "high"
+                                        ? "bg-red-100 text-red-700"
+                                        : status === "medium"
+                                        ? "bg-orange-100 text-orange-700"
+                                        : "bg-green-100 text-green-700"
+                                    }`}
+                                  >
+                                    {occupancyRate.toFixed(1)}% Occupied
+                                  </div>
+                                </div>
+
+                                {/* Bed Summary */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                  <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600 mb-1">Total Beds</p>
+                                    <p className="text-xl font-bold">{hospital.bedSummary.totalBeds}</p>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600 mb-1">Occupied</p>
+                                    <p className="text-xl font-bold text-red-600">{hospital.bedSummary.occupiedBeds}</p>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600 mb-1">Available</p>
+                                    <p className="text-xl font-bold text-green-600">{hospital.bedSummary.availableBeds}</p>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-3">
+                                    <p className="text-xs text-gray-600 mb-1">OPD Today</p>
+                                    <p className="text-xl font-bold text-purple-600">{hospital.opdLoad.today.total}</p>
+                                  </div>
+                                </div>
+
+                                {/* Bed Types */}
+                                <div className="flex flex-wrap gap-2">
+                                  {hospital.bedSummary.byType.map((bed) => (
+                                    <div
+                                      key={bed.type}
+                                      className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg px-3 py-2 border border-purple-100"
+                                    >
+                                      <p className="text-xs font-semibold">{bed.type}</p>
+                                      <p className="text-xs text-gray-600">
+                                        {bed.available}/{bed.total} available
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Quick Stats */}
+                              <div className="lg:w-64 space-y-3">
+                                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4 border border-purple-200">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs text-purple-700 font-semibold">OPD Status</span>
+                                    <Calendar size={16} className="text-purple-600" />
+                                  </div>
+                                  <p className="text-lg font-bold">
+                                    {hospital.opdLoad.today.completed}/{hospital.opdLoad.today.total} Completed
+                                  </p>
+                                  <p className="text-xs text-purple-700 mt-1">
+                                    {hospital.opdLoad.today.scheduled} Scheduled
+                                  </p>
+                                </div>
+
+                                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-lg p-4 border border-pink-200">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <span className="text-xs text-pink-700 font-semibold">Admissions</span>
+                                    <Users size={16} className="text-pink-600" />
+                                  </div>
+                                  <p className="text-lg font-bold">
+                                    {hospital.admissionsLoad.today} Today
+                                  </p>
+                                  <p className="text-xs text-pink-700 mt-1">
+                                    {hospital.admissionsLoad.pending} Pending
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+

@@ -91,6 +91,7 @@ app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/route', require('./routes/route')); // Route endpoint for OpenRouteService
 app.use('/api', require('./routes/retell')); // Retell AI routes
 app.use('/api/early-warning', require('./routes/early-warning')); // Early Warning System routes
+app.use('/api/inventory', require('./routes/inventory')); // Inventory Management routes
 app.use('/api/hospital/queue', require('./routes/queueRoutes')); // Dynamic Queue Engine routes
 app.use('/api/hospital/analytics', require('./routes/analyticsRoutes')); // Analytics Dashboard routes
 

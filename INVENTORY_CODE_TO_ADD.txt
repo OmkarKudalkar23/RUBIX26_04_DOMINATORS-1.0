@@ -1,0 +1,29 @@
+// Add this navigation button in BOTH mobile menu AND desktop sidebar
+// Find the City Dashboard button and add this AFTER it:
+
+<button
+  onClick={() => {
+    setActiveTab("inventory");
+    setShowMobileMenu(false); // Only for mobile menu, remove this line for desktop
+  }}
+  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+    activeTab === "inventory"
+      ? "bg-black text-white"
+      : "text-gray-700 hover:bg-gray-100"
+  }`}
+>
+  <Package size={20} />
+  <span className="text-sm font-semibold uppercase tracking-wide">
+    {t.inventory}
+  </span>
+</button>
+
+// ============================================
+// Add this tab content BEFORE the Settings Tab
+// Search for: {activeTab === "settings" &&
+// Add this BEFORE that line:
+
+{/* Inventory Tab */}
+{activeTab === "inventory" && (
+  <InventoryTab hospitalId={hospitalId} />
+)}

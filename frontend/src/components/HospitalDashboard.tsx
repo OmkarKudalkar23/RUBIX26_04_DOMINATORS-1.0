@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { Chatbot } from "./Chatbot";
+import { InventoryTab } from "./InventoryTab";
 import {
   getHospitalBeds,
   updateHospitalBed,
@@ -35,6 +36,11 @@ import {
   type OpdCheckIn,
   type HospitalDoctor,
 } from "../services/api";
+import {
+  getCentralizedHospitalCapacity,
+  type CentralizedHospitalData,
+  type CentralizedCapacityResponse,
+} from "../services/centralizedApi";
 import {
   User,
   Calendar,
@@ -85,6 +91,7 @@ import {
   Moon,
   Sun,
   Globe,
+  Package,
   Lock,
   Save,
   Trash2,
@@ -214,6 +221,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [hospitalDoctors, setHospitalDoctors] = useState<HospitalDoctor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Centralized Dashboard State
+  const [centralizedData, setCentralizedData] = useState<CentralizedCapacityResponse | null>(null);
+  const [centralizedLoading, setCentralizedLoading] = useState(false);
 
   // OPD Check-in form state
   const [opdForm, setOpdForm] = useState({
@@ -656,6 +667,30 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     return () => clearInterval(interval);
   }, [activeTab]);
 
+  // Fetch centralized data when city tab is active
+  useEffect(() => {
+    if (activeTab !== 'city') return;
+
+    const fetchCentralizedData = async () => {
+      try {
+        setCentralizedLoading(true);
+        const data = await getCentralizedHospitalCapacity();
+        setCentralizedData(data);
+      } catch (error) {
+        console.error('Error fetching centralized data:', error);
+        toast.error('Failed to load city dashboard data');
+      } finally {
+        setCentralizedLoading(false);
+      }
+    };
+
+    fetchCentralizedData();
+
+    // Refresh every 5 seconds for real-time updates
+    const interval = setInterval(fetchCentralizedData, 5 * 1000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
+
   // Handle change password - Now using API
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -930,6 +965,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     { id: "staff", icon: Users, label: t.staffAllocation },
                     { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
                     { id: "appointments", icon: Calendar, label: t.appointments },
+                    { id: "inventory", icon: Package, label: t.inventory },
+                    { id: "city", icon: Globe, label: "City Dashboard" },
                     { id: "settings", icon: Settings, label: t.settings },
                   ].map((item) => (
                     <button
@@ -967,6 +1004,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             { id: "staff", icon: Users, label: t.staffAllocation },
             { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
             { id: "appointments", icon: Calendar, label: t.appointments },
+            { id: "inventory", icon: Package, label: t.inventory },
+            { id: "city", icon: Globe, label: "City Dashboard" },
             { id: "settings", icon: Settings, label: t.settings },
           ].map((item) => (
             <button
@@ -3026,7 +3065,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-600 mb-1.5 uppercase tracking-wider">
-                    Temperature Alert Threshold (°C)
+                    Temperature Alert Threshold (Â°C)
                   </label>
                   <input
                     type="number"
