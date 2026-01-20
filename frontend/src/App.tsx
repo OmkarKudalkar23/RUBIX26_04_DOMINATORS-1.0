@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { LandingPage } from "./components/LandingPage";
 import { PatientDashboard } from "./components/PatientDashboard";
 import { DoctorDashboard } from "./components/DoctorDashboard";
 import { HospitalDashboard } from "./components/HospitalDashboard";
+import { CentralizedDashboard } from "./components/CentralizedDashboard";
 import { HeartbeatLoader } from "./components/HeartbeatLoader";
 import { Toaster } from "./components/ui/sonner";
 import "./styles/bubbles.css";
 
 export default function App() {
-  const [userType, setUserType] = useState<"patient" | "doctor" | "hospital" | null>(null);
+  const [userType, setUserType] = useState<"patient" | "doctor" | "hospital" | "admin" | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -20,7 +21,7 @@ export default function App() {
         const user = JSON.parse(userStr);
         const urlParams = new URLSearchParams(window.location.search);
         const urlPatientId = urlParams.get('id');
-        
+
         // If URL has patient ID and user is a patient, ensure they match
         if (urlPatientId && user.role === 'patient') {
           // If patientId in localStorage doesn't match URL, update localStorage
@@ -33,7 +34,7 @@ export default function App() {
             const updatedUser = { ...user, patientId: urlPatientId };
             localStorage.setItem('user', JSON.stringify(updatedUser));
           }
-          
+
           // Auto-login if URL has patient ID
           setUserType(user.role);
           setIsLoggedIn(true);
@@ -52,7 +53,7 @@ export default function App() {
     } catch (e) {
       console.log('Error checking user state:', e);
     }
-    
+
     // Simulate initial loading
     const timer = setTimeout(() => {
       setIsLoading(false);
@@ -60,7 +61,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleLogin = (type: "patient" | "doctor" | "hospital") => {
+  const handleLogin = (type: "patient" | "doctor" | "hospital" | "admin") => {
     setIsLoading(true);
     setTimeout(() => {
       setUserType(type);
@@ -108,6 +109,16 @@ export default function App() {
     return (
       <>
         <HospitalDashboard onLogout={handleLogout} />
+        <Toaster />
+      </>
+    );
+  }
+
+  // If logged in as admin (city health dashboard)
+  if (isLoggedIn && userType === "admin") {
+    return (
+      <>
+        <CentralizedDashboard onLogout={handleLogout} />
         <Toaster />
       </>
     );

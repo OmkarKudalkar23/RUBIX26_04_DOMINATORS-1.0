@@ -8,6 +8,7 @@ const EnvironmentReading = require('../models/EnvironmentReading');
 const HospitalBed = require('../models/HospitalBed');
 const HospitalAppointment = require('../models/HospitalAppointment');
 const HospitalAdmission = require('../models/HospitalAdmission');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -289,11 +290,18 @@ router.get('/:id/summary', async (req, res) => {
  */
 router.get('/capacity', async (req, res) => {
   try {
+    // Fetch from Hospital collection (beds are already linked to these)
     const hospitals = await Hospital.find({}).select('name address');
 
     const today = new Date().toISOString().split('T')[0];
     const last7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const last7Str = last7.toISOString().split('T')[0];
+
+    // Define startOfDay and endOfDay for admissions queries
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
 
     const capacityData = await Promise.all(
       hospitals.map(async (hospital) => {
