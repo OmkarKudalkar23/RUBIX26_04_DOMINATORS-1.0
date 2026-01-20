@@ -1,0 +1,17 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production.environment]
+  NEXT_PUBLIC_API_URL = "https://your-api-url.com"
+
+[context.preview.environment]
+  NEXT_PUBLIC_API_URL = "http://localhost:8000"
+
+[context.development.environment]
+  NEXT_PUBLIC_API_URL = "http://localhost:8000"

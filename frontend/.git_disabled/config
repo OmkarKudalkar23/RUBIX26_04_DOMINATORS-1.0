@@ -1,0 +1,13 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
+[remote "origin"]
+	url = https://github.com/vanshpatil16/Mumbai_hacks
+	fetch = +refs/heads/frontend-2:refs/remotes/origin/frontend-2
+[branch "frontend-2"]
+	remote = origin
+	merge = refs/heads/frontend-2
