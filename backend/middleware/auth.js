@@ -6,17 +6,17 @@ const authenticate = async (req, res, next) => {
   try {
     // Get token from Authorization header
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({ message: 'No token provided. Authorization header must be: Bearer <token>' });
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
+
     // Verify token
     const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
     const decoded = jwt.verify(token, JWT_SECRET);
-    
+
     // Find user to ensure they still exist
     const user = await User.findById(decoded.userId);
     if (!user) {
@@ -28,7 +28,10 @@ const authenticate = async (req, res, next) => {
       id: user._id.toString(),
       userId: user._id.toString(), // Alias for compatibility
       role: user.role,
-      email: user.email
+      email: user.email,
+      hospitalId: user.hospitalId ? user.hospitalId.toString() : undefined,
+      doctorId: user.doctorId ? user.doctorId.toString() : undefined,
+      patientId: user.patientId ? user.patientId.toString() : undefined
     };
 
     next();
@@ -50,11 +53,11 @@ const requireRole = (...roles) => {
     if (!req.user) {
       return res.status(401).json({ message: 'Authentication required' });
     }
-    
+
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ message: `Access denied. Required role: ${roles.join(' or ')}` });
     }
-    
+
     next();
   };
 };

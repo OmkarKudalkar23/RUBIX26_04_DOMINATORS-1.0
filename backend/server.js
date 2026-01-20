@@ -21,8 +21,8 @@ mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ MongoDB connected'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
 // Import models
 require('./models/User');
@@ -91,6 +91,8 @@ app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/route', require('./routes/route')); // Route endpoint for OpenRouteService
 app.use('/api', require('./routes/retell')); // Retell AI routes
 app.use('/api/early-warning', require('./routes/early-warning')); // Early Warning System routes
+app.use('/api/hospital/queue', require('./routes/queueRoutes')); // Dynamic Queue Engine routes
+app.use('/api/hospital/analytics', require('./routes/analyticsRoutes')); // Analytics Dashboard routes
 
 // Background job to auto-update AQI every 15 minutes
 const HospitalEnvironment = require('./models/HospitalEnvironment');
@@ -101,12 +103,12 @@ async function updateAllHospitalEnvironments() {
   try {
     const hospitals = await Hospital.find({});
     console.log(`🔄 Updating AQI for ${hospitals.length} hospitals...`);
-    
+
     for (const hospital of hospitals) {
       try {
         const realTimeData = await fetchRealTimeEnvironmentData('Mumbai');
         let environment = await HospitalEnvironment.findOne({ hospitalId: hospital._id });
-        
+
         if (environment) {
           environment.aqi = realTimeData.aqi;
           environment.temperature = realTimeData.temperature;

@@ -13,6 +13,16 @@ const hospitalOpdCheckInSchema = new mongoose.Schema(
     status: { type: String, enum: ['checked-in', 'in-triage', 'in-consult', 'completed', 'no-show'], default: 'checked-in' },
     checkInTime: { type: Date, default: () => new Date() },
     priority: { type: String, enum: ['low', 'normal', 'high', 'critical'], default: 'normal' },
+
+    // New fields for Dynamic Queue Engine
+    doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: false },
+    estimatedArrivalTime: { type: Date }, // When they are expected to arrive
+    arrivalStatus: { type: String, enum: ['arrived', 'delayed', 'no-show', 'on-time', 'waiting'], default: 'waiting' },
+    consultationComplexity: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+    priorityScore: { type: Number, default: 0 }, // Calculated dynamic score
+    bookingTime: { type: Date, default: () => new Date() }, // Original booking time for Appointments
+    isEmergency: { type: Boolean, default: false }, // Explicit override flag
+
     // computed/assigned sequence
     queueNumber: { type: Number, required: true },
     notes: { type: String, default: '' }

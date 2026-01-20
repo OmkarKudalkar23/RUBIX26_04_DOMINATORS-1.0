@@ -10,10 +10,14 @@ const doctorSchema = new mongoose.Schema(
     phone: String,
     address: String,
     specialization: String,
+    department: String,
     education: String,
     certificateUrl: String,
     aadhaarUrl: String,
-    hospitalId: { type: mongoose.Schema.Types.ObjectId, ref: "Hospital" }
+    hospitalId: { type: mongoose.Schema.Types.ObjectId, ref: "Hospital" },
+    // Real-time availability tracking
+    isOnDuty: { type: Boolean, default: false },
+    currentPatientId: { type: mongoose.Schema.Types.ObjectId, ref: "HospitalOpdCheckIn", default: null }
   },
   { timestamps: true }
 );

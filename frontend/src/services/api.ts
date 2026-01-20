@@ -729,7 +729,7 @@ export const deleteDoctorMedicalRecord = async (id: string): Promise<void> => {
 const HOSPITAL_API_BASE_URL = 'http://localhost:5000/api/hospital';
 
 // Helper to make authenticated hospital requests
-const hospitalApiRequest = async (endpoint: string, options: RequestInit = {}) => {
+export const hospitalApiRequest = async (endpoint: string, options: RequestInit = {}) => {
   const token = getAuthToken();
   if (!token) {
     throw new Error('No authentication token found. Please log in.');
@@ -812,6 +812,9 @@ export interface DoctorSlot {
   specialization: string;
   department: string;
   date: string;
+  isActive?: boolean;  // Is doctor ON DUTY?
+  currentPatientId?: string | null;  // Patient being consulted (null = free)
+  status?: 'Free' | 'Busy' | 'Off Duty';  // Computed status
   slots: {
     time: string;
     status: "available" | "booked" | "blocked";
@@ -838,6 +841,20 @@ export const toggleHospitalDoctorSlot = async (
     });
   } catch (error) {
     console.error('Error toggling doctor slot:', error);
+    throw error;
+  }
+};
+
+// Toggle doctor on-duty status (isActive)
+export const toggleDoctorActive = async (
+  doctorSlotId: string
+): Promise<DoctorSlot> => {
+  try {
+    return await hospitalApiRequest(`/doctor-slots/${doctorSlotId}/active`, {
+      method: 'PATCH',
+    });
+  } catch (error) {
+    console.error('Error toggling doctor active status:', error);
     throw error;
   }
 };
@@ -997,68 +1014,7 @@ export const changeHospitalPassword = async (payload: {
   }
 };
 
-// OPD Queue Management
-export interface OpdCheckIn {
-  id: string;
-  patientName: string;
-  department: string;
-  doctorName: string;
-  visitType: 'OPD' | 'Emergency' | 'Follow-up';
-  status: 'waiting' | 'in-consultation' | 'completed';
-  priority: 'normal' | 'high' | 'emergency';
-  queueNumber: number;
-  checkInTime: string;
-  notes?: string;
-}
 
-export const checkInOpdPatient = async (data: {
-  patientName: string;
-  department: string;
-  doctorName?: string;
-  visitType?: 'OPD' | 'Emergency' | 'Follow-up';
-  priority?: 'normal' | 'high' | 'emergency';
-  appointmentId?: string;
-}): Promise<OpdCheckIn> => {
-  try {
-    return await hospitalApiRequest('/opd/check-in', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  } catch (error) {
-    console.error('Error checking in OPD patient:', error);
-    throw error;
-  }
-};
-
-export const getOpdQueue = async (date?: string): Promise<OpdCheckIn[]> => {
-  try {
-    const queryParam = date ? `?date=${date}` : '';
-    return await hospitalApiRequest(`/opd/queue${queryParam}`);
-  } catch (error) {
-    console.error('Error fetching OPD queue:', error);
-    throw error;
-  }
-};
-
-export const updateOpdQueueEntry = async (
-  id: string,
-  updates: {
-    status?: 'waiting' | 'in-consultation' | 'completed';
-    priority?: 'normal' | 'high' | 'emergency';
-    doctorName?: string;
-    notes?: string;
-  }
-): Promise<OpdCheckIn> => {
-  try {
-    return await hospitalApiRequest(`/opd/queue/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    });
-  } catch (error) {
-    console.error('Error updating OPD queue entry:', error);
-    throw error;
-  }
-};
 
 // Hospital Doctors (linked to hospital by domain)
 export interface HospitalDoctor {
@@ -1300,6 +1256,92 @@ export const getCurrentSignals = async (city: string, date?: string): Promise<an
     return await response.json();
   } catch (error) {
     console.error('Error getting signals:', error);
+    throw error;
+  }
+};
+
+// ==================== OPD QUEUE API FUNCTIONS ====================
+
+export interface OpdCheckIn {
+  id: string;
+  patientName: string;
+  department: string;
+  doctorName?: string;
+  doctorId?: string;
+  visitType: "OPD" | "Follow-up";
+  status: "checked-in" | "in-triage" | "in-consult" | "completed" | "no-show";
+  checkInTime: string;
+  priority: "low" | "normal" | "high" | "critical";
+  queueNumber: number; // 1-based index
+  notes?: string;
+
+  // New Dynamic Fields
+  priorityScore?: number;
+  estimatedArrivalTime?: string;
+  arrivalStatus?: "arrived" | "delayed" | "no-show" | "on-time" | "waiting";
+  consultationComplexity?: "low" | "medium" | "high";
+  isEmergency?: boolean;
+}
+
+export const checkInOpdPatient = async (data: {
+  patientName: string;
+  department: string;
+  doctorName?: string;
+  visitType: "OPD" | "Follow-up";
+  priority: "low" | "normal" | "high" | "critical";
+  notes?: string;
+  // New optional inputs
+  estimatedArrivalTime?: string;
+  isEmergency?: boolean;
+  consultationComplexity?: "low" | "medium" | "high";
+}): Promise<OpdCheckIn> => {
+  try {
+    const response = await hospitalApiRequest('/queue/check-in', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return {
+      ...response,
+      id: response._id
+    };
+  } catch (error) {
+    console.error('Error checking in OPD patient:', error);
+    throw error;
+  }
+};
+
+export const getOpdQueue = async (department: string = "Cardiology"): Promise<OpdCheckIn[]> => {
+  try {
+    // Defaulting to Cardiology for demo, but should be dynamic
+    const response = await hospitalApiRequest(`/queue?department=${department}`);
+    return response.map((item: any) => ({
+      ...item,
+      id: item._id, // Map _id to id
+      // Ensure dates are strings for frontend
+      checkInTime: item.checkInTime ? new Date(item.checkInTime).toISOString() : new Date().toISOString(),
+      estimatedArrivalTime: item.estimatedArrivalTime ? new Date(item.estimatedArrivalTime).toISOString() : undefined
+    }));
+  } catch (error) {
+    console.error('Error fetching OPD queue:', error);
+    throw error;
+  }
+};
+
+export const updateOpdQueueEntry = async (
+  id: string,
+  updates: Partial<OpdCheckIn>
+): Promise<OpdCheckIn> => {
+  try {
+    const response = await hospitalApiRequest(`/queue/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    });
+    return {
+      ...response,
+      id: response._id
+    };
+  } catch (error) {
+    console.error("Error updating OPD entry:", error);
     throw error;
   }
 };

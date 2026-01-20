@@ -23,6 +23,10 @@ const hospitalDoctorSlotSchema = new mongoose.Schema({
     ref: "Hospital",
     required: true
   },
+  doctorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Doctor"
+  },
   doctorName: {
     type: String,
     required: true
@@ -38,6 +42,15 @@ const hospitalDoctorSlotSchema = new mongoose.Schema({
   date: {
     type: String, // Format: "YYYY-MM-DD"
     required: true
+  },
+  isActive: {
+    type: Boolean,
+    default: true  // Doctor is ON DUTY by default when slot is created
+  },
+  currentPatientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "HospitalOpdCheckIn",
+    default: null  // null = Free, has value = Busy with this patient
   },
   slots: {
     type: [slotSchema],

@@ -546,10 +546,12 @@ router.get('/doctor-slots', async (req, res) => {
       if (!existing) {
         await HospitalDoctorSlot.create({
           hospitalId: hospital._id,
+          doctorId: doctorProfile?._id, // Ensure doctorId is saved!
           doctorName,
           specialization,
           department,
           date: today,
+          isActive: true,  // Doctor is available by default when slot is created
           slots: defaultSlots
         });
       }
@@ -559,18 +561,29 @@ router.get('/doctor-slots', async (req, res) => {
     const slots = await HospitalDoctorSlot.find({ hospitalId: hospital._id, date: today })
       .sort({ doctorName: 1 });
 
-    res.json(slots.map(slot => ({
-      id: slot._id.toString(),
-      doctorName: slot.doctorName,
-      specialization: slot.specialization,
-      department: slot.department,
-      date: slot.date,
-      slots: slot.slots.map(s => ({
-        time: s.time,
-        status: s.status,
-        patientName: s.patientName
-      }))
-    })));
+    res.json(slots.map(slot => {
+      // Compute status: Off Duty, Busy, or Free
+      let status = 'Off Duty';
+      if (slot.isActive) {
+        status = slot.currentPatientId ? 'Busy' : 'Free';
+      }
+
+      return {
+        id: slot._id.toString(),
+        doctorName: slot.doctorName,
+        specialization: slot.specialization,
+        department: slot.department,
+        date: slot.date,
+        isActive: slot.isActive ?? true,
+        currentPatientId: slot.currentPatientId ? slot.currentPatientId.toString() : null,
+        status,  // "Free", "Busy", or "Off Duty"
+        slots: slot.slots.map(s => ({
+          time: s.time,
+          status: s.status,
+          patientName: s.patientName
+        }))
+      };
+    }));
   } catch (error) {
     console.error('Error fetching doctor slots:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -632,6 +645,51 @@ router.patch('/doctor-slots/:doctorSlotId/slots/:slotIndex', async (req, res) =>
     });
   } catch (error) {
     console.error('Error toggling slot:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// PATCH /api/hospital/doctor-slots/:doctorSlotId/active - Toggle doctor on-duty status
+router.patch('/doctor-slots/:doctorSlotId/active', async (req, res) => {
+  try {
+    const { doctorSlotId } = req.params;
+
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    const doctorSlot = await HospitalDoctorSlot.findById(doctorSlotId);
+    if (!doctorSlot) {
+      return res.status(404).json({ message: 'Doctor slot not found' });
+    }
+
+    // Verify ownership
+    if (doctorSlot.hospitalId.toString() !== hospital._id.toString()) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    // Toggle isActive status
+    doctorSlot.isActive = !doctorSlot.isActive;
+    await doctorSlot.save();
+
+    console.log(`Doctor ${doctorSlot.doctorName} is now ${doctorSlot.isActive ? 'ON DUTY' : 'OFF DUTY'}`);
+
+    res.json({
+      id: doctorSlot._id.toString(),
+      doctorName: doctorSlot.doctorName,
+      specialization: doctorSlot.specialization,
+      department: doctorSlot.department,
+      date: doctorSlot.date,
+      isActive: doctorSlot.isActive,
+      slots: doctorSlot.slots.map(s => ({
+        time: s.time,
+        status: s.status,
+        patientName: s.patientName
+      }))
+    });
+  } catch (error) {
+    console.error('Error toggling doctor active status:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
