@@ -8,6 +8,7 @@ export const translations = {
         staffAllocation: "Staff Allocation",
         surgeAlerts: "Surge Alerts",
         appointments: "Appointments",
+        inventory: "Inventory",
         settings: "Settings",
 
         // Dashboard Tab
@@ -130,6 +131,7 @@ export const translations = {
         staffAllocation: "स्टाफ आवंटन",
         surgeAlerts: "चेतावनी",
         appointments: "नियुक्तियाँ",
+        inventory: "इन्वेंटरी",
         settings: "सेटिंग्स",
 
         // Dashboard Tab

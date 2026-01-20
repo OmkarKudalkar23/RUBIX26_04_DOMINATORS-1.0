@@ -46,6 +46,23 @@ const hospitalBedSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'HospitalAdmission',
       default: null
+    },
+    // Equipment availability for admission workflow
+    hasVentilator: {
+      type: Boolean,
+      default: false
+    },
+    hasOxygen: {
+      type: Boolean,
+      default: false
+    },
+    department: {
+      type: String,
+      default: 'General'
+    },
+    isIsolation: {
+      type: Boolean,
+      default: false
     }
   }]
 }, { timestamps: true });

@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { Chatbot } from "./Chatbot";
+import { InventoryTab } from "./InventoryTab";
 import {
   getHospitalBeds,
   updateHospitalBed,
@@ -90,6 +91,7 @@ import {
   Moon,
   Sun,
   Globe,
+  Package,
   Lock,
   Save,
   Trash2,
@@ -917,6 +919,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     { id: "staff", icon: Users, label: t.staffAllocation },
                     { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
                     { id: "appointments", icon: Calendar, label: t.appointments },
+                    { id: "inventory", icon: Package, label: t.inventory },
                     { id: "city", icon: Globe, label: "City Dashboard" },
                     { id: "settings", icon: Settings, label: t.settings },
                   ].map((item) => (
@@ -955,6 +958,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             { id: "staff", icon: Users, label: t.staffAllocation },
             { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
             { id: "appointments", icon: Calendar, label: t.appointments },
+            { id: "inventory", icon: Package, label: t.inventory },
             { id: "city", icon: Globe, label: "City Dashboard" },
             { id: "settings", icon: Settings, label: t.settings },
           ].map((item) => (
@@ -1878,10 +1882,10 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                               {doctor.doctorName}
                             </h3>
                             <p className="text-sm text-gray-600">
-                              {doctor.specialization} • {doctor.department}
+                              {doctor.specialization} â€¢ {doctor.department}
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
-                              {doctor.date} • {doctor.slots.filter((s) => s.status === "booked").length}/
+                              {doctor.date} â€¢ {doctor.slots.filter((s) => s.status === "booked").length}/
                               {doctor.slots.length} slots booked
                             </p>
                           </div>
@@ -2135,7 +2139,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                         <span className="text-xs uppercase tracking-wide text-gray-600">Temperature</span>
                       </div>
                       <div className="text-2xl mb-1" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
-                        {environmentalData?.temperature || 0}°C
+                        {environmentalData?.temperature || 0}Â°C
                       </div>
                       <div className="text-xs text-gray-600">Current temp</div>
                     </div>
@@ -2586,7 +2590,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                       {bedType.type}
                                     </h6>
                                     <span className="text-xs text-gray-600">
-                                      {bedType.occupied} Occupied • {bedType.available} Available
+                                      {bedType.occupied} Occupied â€¢ {bedType.available} Available
                                     </span>
                                   </div>
 
@@ -2617,7 +2621,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                         <BedDouble size={16} />
                                       </motion.div>
                                     ))}
-                                    
+
                                   </div>
                                 </div>
                               ))}
@@ -2635,7 +2639,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                 </p>
                                 <div className="flex items-center gap-4 text-xs text-purple-700">
                                   <span>{hospital.opdLoad.today.scheduled} Scheduled</span>
-                                  <span>•</span>
+                                  <span>â€¢</span>
                                   <span>{hospital.opdLoad.today.cancelled} Cancelled</span>
                                 </div>
                               </div>
@@ -2650,7 +2654,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                 </p>
                                 <div className="flex items-center gap-4 text-xs text-pink-700">
                                   <span>{hospital.admissionsLoad.pending} Pending</span>
-                                  <span>•</span>
+                                  <span>â€¢</span>
                                   <span>{hospital.admissionsLoad.admitted} Admitted</span>
                                 </div>
                               </div>
@@ -2662,6 +2666,11 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   </>
                 )}
               </div>
+            )}
+
+            {/* Inventory Tab */}
+            {activeTab === "inventory" && (
+              <InventoryTab />
             )}
 
             {/* Settings Tab */}
@@ -2761,7 +2770,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent"
                         >
                           <option value="English">English</option>
-                          <option value="Hindi">हिन्दी</option>
+                          <option value="Hindi">à¤¹à¤¿à¤¨à¥à¤¦à¥€</option>
                           {/* <option value="Spanish">Spanish</option>
                           <option value="French">French</option>
                           <option value="German">German</option>
@@ -2906,7 +2915,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     {selectedDoctorSlot.doctorName}
                   </h3>
                   <p className="text-sm text-gray-600">
-                    {selectedDoctorSlot.specialization} • {selectedDoctorSlot.department}
+                    {selectedDoctorSlot.specialization} â€¢ {selectedDoctorSlot.department}
                   </p>
                 </div>
                 <button
@@ -3451,7 +3460,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 </div>
                 <div>
                   <label className="block text-xs text-gray-600 mb-1.5 uppercase tracking-wider">
-                    Temperature Alert Threshold (°C)
+                    Temperature Alert Threshold (Â°C)
                   </label>
                   <input
                     type="number"
