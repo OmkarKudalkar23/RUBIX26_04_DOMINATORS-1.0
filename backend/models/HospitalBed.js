@@ -34,7 +34,7 @@ const hospitalBedSchema = new mongoose.Schema({
     number: Number,
     status: {
       type: String,
-      enum: ['available', 'occupied', 'maintenance'],
+      enum: ['available', 'occupied', 'reserved', 'cleaning', 'discharge_pending', 'blocked', 'maintenance'],
       default: 'available'
     },
     patientId: {
@@ -47,6 +47,17 @@ const hospitalBedSchema = new mongoose.Schema({
       ref: 'HospitalAdmission',
       default: null
     },
+    // Context fields for advanced management
+    occupiedSince: { type: Date, default: null },
+    expectedDischargeTime: { type: Date, default: null },
+    cleaningEta: { type: Date, default: null },
+    blockedReason: { type: String, default: '' },
+    notes: { type: String, default: '' },
+
+    // Admission metadata snapshot (for quick dashboard access)
+    admissionType: { type: String, enum: ['Emergency', 'OPD', 'Surgery', 'Transfer', ''], default: '' },
+    priority: { type: String, enum: ['Normal', 'High', 'Critical', ''], default: '' },
+
     // Equipment availability for admission workflow
     hasVentilator: {
       type: Boolean,

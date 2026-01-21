@@ -205,45 +205,109 @@ router.patch('/beds/:id', async (req, res) => {
     }
 
     // Handle action-based updates
-    if (action === 'occupy') {
-      if (bedNumber) {
-        // Occupy SPECIFIC bed
+    if (action) {
+      if (action === 'add-bed') {
+        const nextNumber = (bed.beds.length > 0) ? Math.max(...bed.beds.map(b => b.number)) + 1 : 1;
+        bed.beds.push({ number: nextNumber, status: 'available' });
+      } else {
+        // All other actions require a specific bed target
+        if (!bedNumber) return res.status(400).json({ message: 'Bed number required for this action' });
+
         const targetBed = bed.beds.find(b => b.number === bedNumber);
         if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
-        if (targetBed.status === 'occupied') return res.status(400).json({ message: 'Bed already occupied' });
-        targetBed.status = 'occupied';
-      } else {
-        // Auto-occupy first available
-        const firstAvailable = bed.beds.find(b => b.status === 'available');
-        if (firstAvailable) {
-          firstAvailable.status = 'occupied';
-        } else {
-          return res.status(400).json({ message: 'No available beds to occupy' });
+
+        const { force, admissionType, priority, patientId, blockedReason, cleaningEta, expectedDischargeTime, notes } = req.body;
+
+        // Helper to check valid transition
+        const checkTransition = (current, allowed, actionName) => {
+          if (force) return; // Admin override
+          if (!allowed.includes(current)) {
+            throw new Error(`Invalid transition: Cannot '${actionName}' from status '${current}'`);
+          }
+        };
+
+        try {
+          switch (action) {
+            case 'admit':
+            case 'occupy':
+              checkTransition(targetBed.status, ['available', 'reserved'], 'admit');
+              targetBed.status = 'occupied';
+              targetBed.occupiedSince = new Date();
+              targetBed.admissionType = admissionType || 'Emergency';
+              targetBed.priority = priority || 'Normal';
+              if (patientId) targetBed.patientId = patientId;
+              // Reset others
+              targetBed.cleaningEta = null;
+              targetBed.expectedDischargeTime = null;
+              targetBed.blockedReason = '';
+              break;
+
+            case 'reserve':
+              checkTransition(targetBed.status, ['available'], 'reserve');
+              targetBed.status = 'reserved';
+              if (notes) targetBed.notes = notes;
+              break;
+
+            case 'discharge_request':
+              checkTransition(targetBed.status, ['occupied'], 'discharge_request');
+              targetBed.status = 'discharge_pending';
+              targetBed.expectedDischargeTime = expectedDischargeTime ? new Date(expectedDischargeTime) : new Date(Date.now() + 2 * 60 * 60000); // Default 2h
+              break;
+
+            case 'mark_cleaning':
+              // Can come from discharge_pending OR occupied (if skipped) OR blocked (after maint)
+              checkTransition(targetBed.status, ['discharge_pending', 'occupied', 'blocked'], 'mark_cleaning');
+              targetBed.status = 'cleaning';
+              targetBed.cleaningEta = cleaningEta ? new Date(cleaningEta) : new Date(Date.now() + 30 * 60000); // Default 30m
+              // Clear patient info on cleaning start? Usually yes, patient has left.
+              targetBed.patientId = null;
+              targetBed.admissionId = null;
+              targetBed.occupiedSince = null;
+              targetBed.admissionType = '';
+              targetBed.priority = '';
+              break;
+
+            case 'finish_cleaning':
+              checkTransition(targetBed.status, ['cleaning'], 'finish_cleaning');
+              targetBed.status = 'available';
+              targetBed.cleaningEta = null;
+              targetBed.blockedReason = '';
+              targetBed.notes = '';
+              break;
+
+            case 'block':
+              // Can block from almost any state except occupied? Or even occupied if critical maintenance?
+              // Let's assume you can't block an occupied bed without moving patient first (force discharge)
+              checkTransition(targetBed.status, ['available', 'reserved', 'cleaning', 'maintenance'], 'block');
+              targetBed.status = 'blocked';
+              targetBed.blockedReason = blockedReason || 'Maintenance';
+              break;
+
+            case 'unblock':
+              checkTransition(targetBed.status, ['blocked', 'maintenance'], 'unblock');
+              // Should go to cleaning first? Or straight to available? 
+              // Let's say needs cleaning.
+              targetBed.status = 'cleaning';
+              targetBed.cleaningEta = new Date(Date.now() + 15 * 60000); // 15m cleaning check
+              break;
+
+            case 'release': // Force release / Reset
+              if (!force) throw new Error("Release action requires force flag or use specific workflow actions");
+              targetBed.status = 'available';
+              targetBed.patientId = null;
+              targetBed.admissionId = null;
+              targetBed.occupiedSince = null;
+              targetBed.cleaningEta = null;
+              targetBed.blockedReason = '';
+              break;
+
+            default:
+              return res.status(400).json({ message: `Unknown action: ${action}` });
+          }
+        } catch (err) {
+          return res.status(400).json({ message: err.message });
         }
       }
-    } else if (action === 'release') {
-      if (bedNumber) {
-        // Release SPECIFIC bed
-        const targetBed = bed.beds.find(b => b.number === bedNumber);
-        if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
-        if (targetBed.status === 'available') return res.status(400).json({ message: 'Bed already available' });
-        targetBed.status = 'available';
-        targetBed.patientId = null;
-        targetBed.admissionId = null;
-      } else {
-        // Auto-release first occupied (LIFO or FIFO doesn't strictly matter for counts, but LIFO matches typical "undo")
-        const lastOccupied = [...bed.beds].reverse().find(b => b.status === 'occupied');
-        if (lastOccupied) {
-          lastOccupied.status = 'available';
-          lastOccupied.patientId = null;
-          lastOccupied.admissionId = null;
-        } else {
-          return res.status(400).json({ message: 'No occupied beds to release' });
-        }
-      }
-    } else if (action === 'add-bed') {
-      const nextNumber = (bed.beds.length > 0) ? Math.max(...bed.beds.map(b => b.number)) + 1 : 1;
-      bed.beds.push({ number: nextNumber, status: 'available' });
     } else {
       // Legacy or direct updates (e.g. just changing totals manually)
       // If user passes 'total', we might need to resize array. 

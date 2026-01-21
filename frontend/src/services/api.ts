@@ -762,9 +762,22 @@ export interface BedData {
   available: number;
   beds?: Array<{
     number: number;
-    status: 'available' | 'occupied' | 'maintenance';
+    status: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'discharge_pending' | 'blocked' | 'maintenance';
     patientId?: string;
     admissionId?: string;
+    // Context fields
+    occupiedSince?: string;
+    expectedDischargeTime?: string;
+    cleaningEta?: string;
+    blockedReason?: string;
+    notes?: string;
+    admissionType?: 'Emergency' | 'OPD' | 'Surgery' | 'Transfer' | '';
+    priority?: 'Normal' | 'High' | 'Critical' | '';
+    // Equipment
+    hasVentilator?: boolean;
+    hasOxygen?: boolean;
+    department?: string;
+    isIsolation?: boolean;
   }>;
 }
 

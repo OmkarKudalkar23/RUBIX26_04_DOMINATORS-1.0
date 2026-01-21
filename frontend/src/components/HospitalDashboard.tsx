@@ -127,6 +127,7 @@ import {
 } from "recharts";
 import { translations } from "../utils/translations";
 import { AnalyticsTab } from './AnalyticsTab';
+import BedManagementDrawer from './BedManagementDrawer';
 import { OpdDashboard } from './OpdDashboard';
 import { CentralizedDashboard } from './CentralizedDashboard';
 
@@ -261,6 +262,12 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
   // New Resource Forms State
   const [newBedForm, setNewBedForm] = useState({ type: "", total: 10 });
+
+  // Bed Management Drawer State
+  const [showBedDrawer, setShowBedDrawer] = useState(false);
+  const [selectedBedSlot, setSelectedBedSlot] = useState<NonNullable<BedData['beds']>[number] | null>(null);
+  const [selectedWardType, setSelectedWardType] = useState<string>("");
+  const [selectedWardId, setSelectedWardId] = useState<string>("");
 
   const [newDoctorForm, setNewDoctorForm] = useState({
     name: "",
@@ -645,6 +652,34 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     } catch (error: any) {
       console.error("Error toggling doctor status:", error);
       toast.error(error.message || "Failed to toggle doctor status");
+    }
+  };
+
+  // Handle Bed Lifecycle Actions (from Drawer)
+  const handleBedAction = async (action: string, payload: Record<string, unknown> = {}) => {
+    if (!selectedBedSlot || !selectedWardId) return;
+
+    try {
+      const updatePayload: Record<string, unknown> = {
+        action,
+        bedNumber: selectedBedSlot.number,
+        ...payload
+      };
+
+      const updatedBed = await updateHospitalBed(selectedWardId, updatePayload as Parameters<typeof updateHospitalBed>[1]);
+
+      setBeds(prev => prev.map(b => b.id === selectedWardId ? updatedBed : b));
+
+      // Update selected bed slot to reflect changes immediately in drawer
+      if (updatedBed.beds) {
+        const specificBed = updatedBed.beds.find(b => b.number === selectedBedSlot.number);
+        if (specificBed) setSelectedBedSlot(specificBed);
+      }
+
+      toast.success(`Action '${action}' completed`);
+    } catch (error: any) {
+      console.error(error);
+      toast.error(`Failed: ${error.message}`);
     }
   };
 
@@ -1735,38 +1770,47 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                         */}
                         {bed.beds && bed.beds.length > 0 ? (
                           // Sort by bed number just to be safe they appear in order
-                          [...bed.beds].sort((a, b) => a.number - b.number).map((b) => (
-                            <motion.button
-                              key={b.number}
-                              whileHover={{ scale: 1.05 }}
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => {
-                                if (b.status === 'occupied') {
-                                  handleReleaseBed(bed, b.number);
-                                } else {
-                                  handleOccupyBed(bed, b.number);
-                                }
-                              }}
-                              className={`
-                                  relative group w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300
-                                  ${b.status === 'occupied'
-                                  ? "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100"
-                                  : "bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 shadow-sm"}
-                                `}
-                            >
-                              <BedDouble className={`w-5 h-5 ${b.status === 'occupied' ? "fill-current" : ""}`} />
-                              <span className={`absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold rounded-full shadow-sm
-                                  ${b.status === 'occupied' ? "bg-white text-red-600 border border-red-100" : "bg-emerald-600 text-white"}
-                                `}>
-                                {b.number}
-                              </span>
+                          [...bed.beds].sort((a, b) => a.number - b.number).map((b) => {
+                            // Status-based styling
+                            const statusStyles: Record<string, { classes: string; fill: boolean }> = {
+                              available: { classes: "bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 shadow-sm", fill: false },
+                              occupied: { classes: "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100", fill: true },
+                              reserved: { classes: "bg-yellow-500 text-white shadow-lg shadow-yellow-200 ring-2 ring-yellow-100", fill: true },
+                              cleaning: { classes: "bg-blue-500 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-100", fill: true },
+                              discharge_pending: { classes: "bg-orange-500 text-white shadow-lg shadow-orange-200 ring-2 ring-orange-100", fill: true },
+                              blocked: { classes: "bg-gray-500 text-white shadow-lg shadow-gray-200 ring-2 ring-gray-100", fill: true },
+                              maintenance: { classes: "bg-gray-500 text-white shadow-lg shadow-gray-200 ring-2 ring-gray-100", fill: true },
+                            };
+                            const style = statusStyles[b.status] || statusStyles.available;
+                            const badgeClasses = b.status === 'available'
+                              ? "bg-emerald-600 text-white"
+                              : "bg-white text-gray-700 border border-gray-200";
 
-                              {/* Tooltip */}
-                              <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
-                                {b.status === 'occupied' ? `${t.releaseBed} ${b.number}` : `${t.occupyBed} ${b.number}`}
-                              </div>
-                            </motion.button>
-                          ))
+                            return (
+                              <motion.button
+                                key={b.number}
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => {
+                                  setSelectedBedSlot(b);
+                                  setSelectedWardType(bed.type);
+                                  setSelectedWardId(bed.id);
+                                  setShowBedDrawer(true);
+                                }}
+                                className={`relative group w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${style.classes}`}
+                              >
+                                <BedDouble className={`w-5 h-5 ${style.fill ? "fill-current" : ""}`} />
+                                <span className={`absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold rounded-full shadow-sm ${badgeClasses}`}>
+                                  {b.number}
+                                </span>
+
+                                {/* Tooltip */}
+                                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
+                                  {b.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </div>
+                              </motion.button>
+                            );
+                          })
                         ) : (
                           // Fallback Legacy Loop (should generally be replaced by above if backend works)
                           Array.from({ length: bed.total }).map((_, i) => {
@@ -4041,6 +4085,16 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           })}
         </AnimatePresence>
       </div>
+
+      {/* Bed Management Drawer */}
+      <BedManagementDrawer
+        isOpen={showBedDrawer}
+        onClose={() => setShowBedDrawer(false)}
+        bed={selectedBedSlot}
+        wardType={selectedWardType}
+        wardId={selectedWardId}
+        onAction={handleBedAction}
+      />
 
       {/* Chatbot */}
       <Chatbot userType="hospital" />
