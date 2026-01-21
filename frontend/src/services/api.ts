@@ -1310,10 +1310,11 @@ export const checkInOpdPatient = async (data: {
   }
 };
 
-export const getOpdQueue = async (department: string = "Cardiology"): Promise<OpdCheckIn[]> => {
+export const getOpdQueue = async (department?: string): Promise<OpdCheckIn[]> => {
   try {
-    // Defaulting to Cardiology for demo, but should be dynamic
-    const response = await hospitalApiRequest(`/queue?department=${department}`);
+    // Fetch all patients if no department specified
+    const endpoint = department ? `/queue?department=${encodeURIComponent(department)}` : '/queue';
+    const response = await hospitalApiRequest(endpoint);
     return response.map((item: any) => ({
       ...item,
       id: item._id, // Map _id to id

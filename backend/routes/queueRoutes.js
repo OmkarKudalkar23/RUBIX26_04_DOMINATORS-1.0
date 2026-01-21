@@ -118,15 +118,16 @@ router.get('/', requireRole('hospital'), async (req, res) => {
         const { department, doctorId } = req.query;
         const hospitalId = req.user.hospitalId;
 
-        if (!department) {
-            return res.status(400).json({ error: 'Department is required' });
-        }
-
+        // Build query - department is now OPTIONAL
         const query = {
             hospitalId,
-            department,
-            status: { $ne: 'completed' } // Don't show completed
+            status: { $nin: ['completed', 'no-show'] } // Don't show completed or no-show
         };
+
+        // Only filter by department if explicitly provided
+        if (department) {
+            query.department = department;
+        }
         if (doctorId) query.doctorId = doctorId;
 
         // Return sorted by queueNumber

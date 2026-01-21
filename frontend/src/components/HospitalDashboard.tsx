@@ -2071,9 +2071,9 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     </button>
                   </div>
 
-                  {/* Filters */}
+                  {/* Filters with Add Staff Button */}
                   <div className="bg-gray-50 rounded-2xl p-4">
-                    <div className="flex flex-col md:flex-row gap-3">
+                    <div className="flex flex-col md:flex-row gap-3 items-center">
                       <div className="flex-1 relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                         <input
@@ -2100,6 +2100,15 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           <option value="Laboratory">Laboratory</option>
                         </select>
                       </div>
+                      {/* Add Staff Button - Moved here for visibility */}
+                      <button
+                        onClick={() => setShowAddStaffModal(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide whitespace-nowrap"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Add Staff
+                      </button>
                     </div>
                   </div>
 
@@ -3380,7 +3389,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-2xl p-6 max-w-md w-full"
             >
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center justify-between mb-6 mt-10">
                 <h3
                   className="text-xl uppercase tracking-wide"
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
