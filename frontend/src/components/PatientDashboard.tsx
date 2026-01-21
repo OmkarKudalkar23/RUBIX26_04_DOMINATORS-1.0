@@ -494,12 +494,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedSlot, setSelectedSlot] = useState("");
   const [selectedAppointmentType, setSelectedAppointmentType] = useState("checkup");
-  // Currency state - defaults to USD, persists in localStorage
+  // Currency state - defaults to INR, persists in localStorage
   const [selectedCurrency, setSelectedCurrency] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('healthsync_currency') || 'USD';
+      return localStorage.getItem('healthsync_currency') || 'INR';
     }
-    return 'USD';
+    return 'INR';
   });
   
   // Save currency preference to localStorage
