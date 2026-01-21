@@ -34,7 +34,7 @@ const hospitalBedSchema = new mongoose.Schema({
     number: Number,
     status: {
       type: String,
-      enum: ['available', 'occupied', 'reserved', 'cleaning', 'discharge_pending', 'blocked', 'maintenance'],
+      enum: ['available', 'occupied', 'reserved', 'cleaning', 'discharge_pending', 'blocked', 'maintenance', 'external'],
       default: 'available'
     },
     patientId: {
@@ -74,7 +74,18 @@ const hospitalBedSchema = new mongoose.Schema({
     isIsolation: {
       type: Boolean,
       default: false
-    }
+    },
+    // External reservation fields from cross-hospital bed requests
+    isExternalReservation: { type: Boolean, default: false },
+    fromHospitalId: { type: mongoose.Schema.Types.ObjectId, ref: 'Hospital', default: null },
+    fromHospitalName: { type: String, default: '' },
+    externalPatientName: { type: String, default: '' },
+    externalPatientAge: { type: Number, default: null },
+    externalPatientGender: { type: String, default: '' },
+    externalPatientContact: { type: String, default: '' },
+    externalPatientBloodGroup: { type: String, default: '' },
+    externalPatientCondition: { type: String, default: '' },
+    reservedAt: { type: Date, default: null }
   }]
 }, { timestamps: true });
 

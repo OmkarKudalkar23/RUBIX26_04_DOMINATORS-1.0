@@ -216,7 +216,7 @@ router.patch('/beds/:id', async (req, res) => {
         const targetBed = bed.beds.find(b => b.number === bedNumber);
         if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
 
-        const { force, admissionType, priority, patientId, blockedReason, cleaningEta, expectedDischargeTime, notes } = req.body;
+        const { force, admissionType, priority, patientId, blockedReason, cleaningEta, expectedDischargeTime, notes, patientName, department, hasVentilator, hasOxygen, isIsolation } = req.body;
 
         // Helper to check valid transition
         const checkTransition = (current, allowed, actionName) => {
@@ -235,7 +235,13 @@ router.patch('/beds/:id', async (req, res) => {
               targetBed.occupiedSince = new Date();
               targetBed.admissionType = admissionType || 'Emergency';
               targetBed.priority = priority || 'Normal';
+              targetBed.department = department || '';
+              targetBed.notes = notes || '';
+              targetBed.hasVentilator = hasVentilator || false;
+              targetBed.hasOxygen = hasOxygen || false;
+              targetBed.isIsolation = isIsolation || false;
               if (patientId) targetBed.patientId = patientId;
+              if (patientName) targetBed.patientName = patientName;
               // Reset others
               targetBed.cleaningEta = null;
               targetBed.expectedDischargeTime = null;
@@ -1882,6 +1888,89 @@ router.patch('/bed-requests/:id', async (req, res) => {
     if (status) bedRequest.status = status;
     if (isRead !== undefined) bedRequest.isRead = isRead;
     if (responseNotes) bedRequest.responseNotes = responseNotes;
+
+    // AUTO-RESERVE BED WHEN APPROVED
+    if (status === 'approved') {
+      const requestedType = bedRequest.bedType || 'General';
+      console.log(`🔍 Looking for bed type: "${requestedType}" for hospital ${hospital._id}`);
+
+      // Find the HospitalBed record for the requested bedType
+      let bedRecord = await HospitalBed.findOne({
+        hospitalId: hospital._id,
+        type: requestedType
+      });
+
+      console.log(`📋 Bed record found: ${bedRecord ? `Yes (${bedRecord.type}, ${bedRecord.beds?.length || 0} beds)` : 'No'}`);
+
+      // If no exact match, try case-insensitive or any bed type
+      if (!bedRecord) {
+        bedRecord = await HospitalBed.findOne({
+          hospitalId: hospital._id,
+          type: { $regex: new RegExp(`^${requestedType}$`, 'i') }
+        });
+        console.log(`📋 Case-insensitive match: ${bedRecord ? `Yes (${bedRecord.type})` : 'No'}`);
+      }
+
+      // If still no match, find ANY bed record with available beds
+      if (!bedRecord) {
+        const allBedRecords = await HospitalBed.find({ hospitalId: hospital._id });
+        console.log(`📋 Total bed records for hospital: ${allBedRecords.length}`);
+
+        for (const record of allBedRecords) {
+          console.log(`   - Type: ${record.type}, Beds: ${record.beds?.length || 0}`);
+          const hasAvailable = record.beds?.some(b => b.status === 'available');
+          if (hasAvailable) {
+            bedRecord = record;
+            console.log(`   ✓ Found available bed in ${record.type}`);
+            break;
+          }
+        }
+      }
+
+      // If still no bed record, create one
+      if (!bedRecord) {
+        console.log(`📋 Creating new bed record for type: ${requestedType}`);
+        bedRecord = new HospitalBed({
+          hospitalId: hospital._id,
+          type: requestedType,
+          total: 20,
+          occupied: 0,
+          available: 20,
+          beds: Array.from({ length: 20 }, (_, i) => ({ number: i + 1, status: 'available' }))
+        });
+        await bedRecord.save();
+      }
+
+      // Ensure beds array exists and is populated
+      if (!bedRecord.beds || bedRecord.beds.length === 0) {
+        bedRecord.beds = Array.from({ length: bedRecord.total || 20 }, (_, i) => ({ number: i + 1, status: 'available' }));
+      }
+
+      // Find an available bed
+      const availableBed = bedRecord.beds.find(b => b.status === 'available');
+      console.log(`🛏️ Available bed found: ${availableBed ? `Yes (Bed #${availableBed.number})` : 'No'}`);
+
+      if (availableBed) {
+        // Reserve the bed with patient data from the request
+        availableBed.status = 'reserved';
+        availableBed.isExternalReservation = true;
+        availableBed.fromHospitalId = bedRequest.fromHospitalId;
+        availableBed.fromHospitalName = bedRequest.fromHospitalName;
+        availableBed.externalPatientName = bedRequest.patientName;
+        availableBed.externalPatientAge = bedRequest.age;
+        availableBed.externalPatientGender = bedRequest.gender;
+        availableBed.externalPatientContact = bedRequest.contact;
+        availableBed.externalPatientBloodGroup = bedRequest.bloodGroup;
+        availableBed.externalPatientCondition = bedRequest.condition;
+        availableBed.notes = `Reserved for patient from ${bedRequest.fromHospitalName}`;
+        availableBed.reservedAt = new Date();
+
+        await bedRecord.save();
+        console.log(`✅ Bed #${availableBed.number} (${bedRecord.type}) reserved for external patient "${bedRequest.patientName}" from ${bedRequest.fromHospitalName}`);
+      } else {
+        console.log(`⚠️ No available beds for type ${requestedType} - request approved but no bed reserved`);
+      }
+    }
 
     await bedRequest.save();
 

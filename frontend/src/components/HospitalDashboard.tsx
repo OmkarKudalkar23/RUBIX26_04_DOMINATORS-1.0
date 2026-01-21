@@ -118,7 +118,7 @@ import {
 } from "recharts";
 import { translations } from "../utils/translations";
 import { AnalyticsTab } from './AnalyticsTab';
-import BedManagementDrawer from './BedManagementDrawer';
+import BedManagementDrawer, { type StaffRole } from './BedManagementDrawer';
 import { OpdDashboard } from './OpdDashboard';
 import { CentralizedDashboard } from './CentralizedDashboard';
 
@@ -259,6 +259,9 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [selectedBedSlot, setSelectedBedSlot] = useState<NonNullable<BedData['beds']>[number] | null>(null);
   const [selectedWardType, setSelectedWardType] = useState<string>("");
   const [selectedWardId, setSelectedWardId] = useState<string>("");
+
+  // Role Toggle State (for demo/simulation)
+  const [staffRole, setStaffRole] = useState<StaffRole>('admin');
 
   const [newDoctorForm, setNewDoctorForm] = useState({
     name: "",
@@ -1287,26 +1290,41 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                 {/* OPD Command Center (AI-style dashboard) */}
                 {(() => {
-                  const completionRate = todaysOpdAppointments.length > 0
-                    ? Math.round((todaysOpdCompleted.length / todaysOpdAppointments.length) * 100)
+                  // Use opdQueue for real-time counts (syncs with OPD Queue page)
+                  // Status values from HospitalOpdCheckIn model: 'checked-in', 'in-triage', 'in-consult', 'completed', 'no-show'
+                  const queueWaiting = opdQueue.filter(q => q.status === 'checked-in' || q.status === 'in-triage' || q.status === 'waiting').length;
+                  const queueInProgress = opdQueue.filter(q => q.status === 'in-consult' || q.status === 'in_consultation').length;
+                  const queueCompleted = opdQueue.filter(q => q.status === 'completed').length;
+                  const totalInQueue = opdQueue.length;
+
+                  const completionRate = totalInQueue > 0
+                    ? Math.round((queueCompleted / totalInQueue) * 100)
                     : 0;
 
-                  const departmentData = todaysOpdAppointments.reduce((acc: any, apt) => {
-                    acc[apt.department] = (acc[apt.department] || 0) + 1;
+                  // Department mix from queue data
+                  const departmentData = opdQueue.reduce((acc: any, patient) => {
+                    const dept = patient.department || 'General';
+                    acc[dept] = (acc[dept] || 0) + 1;
                     return acc;
                   }, {});
                   const departmentChartData = Object.entries(departmentData).map(([name, value]) => ({ name, value }));
 
+                  // Status mix from queue data
                   const statusData = [
-                    { name: "Completed", value: todaysOpdCompleted.length, color: "#10b981" },
-                    { name: "Scheduled", value: todaysOpdScheduled.length, color: "#f59e0b" },
-                    { name: "Cancelled", value: todaysOpdAppointments.filter(a => a.status === "cancelled").length, color: "#ef4444" },
+                    { name: "Completed", value: queueCompleted, color: "#10b981" },
+                    { name: "Waiting", value: queueWaiting, color: "#f59e0b" },
+                    { name: "In Progress", value: queueInProgress, color: "#3b82f6" },
+                    { name: "Cancelled", value: opdQueue.filter(q => q.status === "cancelled").length, color: "#ef4444" },
                   ].filter(x => x.value > 0);
 
-                  const timeSlotData = todaysOpdAppointments.reduce((acc: any, apt) => {
-                    const hour = apt.time.split(':')[0] + (apt.time.includes('PM') && parseInt(apt.time.split(':')[0]) !== 12 ? 12 : 0);
-                    const slot = hour < 12 ? `${hour}:00 AM` : hour === 12 ? "12:00 PM" : `${hour - 12}:00 PM`;
-                    acc[slot] = (acc[slot] || 0) + 1;
+                  // Time slot trend from queue data
+                  const timeSlotData = opdQueue.reduce((acc: any, patient) => {
+                    if (patient.checkInTime) {
+                      const time = new Date(patient.checkInTime);
+                      const hour = time.getHours();
+                      const slot = hour < 12 ? `${hour || 12}:00 AM` : hour === 12 ? "12:00 PM" : `${hour - 12}:00 PM`;
+                      acc[slot] = (acc[slot] || 0) + 1;
+                    }
                     return acc;
                   }, {});
                   const timeSlotChartData = Object.entries(timeSlotData)
@@ -1349,23 +1367,23 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                             <span className="text-xs uppercase tracking-wide text-blue-700 font-semibold">{t.totalOpd}</span>
                             <Calendar className="w-4 h-4 text-blue-600" />
                           </div>
-                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdAppointments.length}</div>
-                          <p className="text-[11px] text-gray-600 mt-1">{t.scheduledToday}</p>
+                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{totalInQueue}</div>
+                          <p className="text-[11px] text-gray-600 mt-1">In queue today</p>
                         </div>
                         <div className="rounded-xl p-4 bg-orange-50 border border-orange-200">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs uppercase tracking-wide text-orange-700 font-semibold">{t.waiting}</span>
                             <Clock className="w-4 h-4 text-orange-600" />
                           </div>
-                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdScheduled.length}</div>
-                          <p className="text-[11px] text-gray-600 mt-1">{t.notCompleted}</p>
+                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{queueWaiting}</div>
+                          <p className="text-[11px] text-gray-600 mt-1">Patients waiting</p>
                         </div>
                         <div className="rounded-xl p-4 bg-green-50 border border-green-200">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs uppercase tracking-wide text-green-700 font-semibold">{t.completed}</span>
                             <CheckCircle className="w-4 h-4 text-green-600" />
                           </div>
-                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{todaysOpdCompleted.length}</div>
+                          <div className="text-4xl font-black text-black" style={{ fontFamily: "'Doto', sans-serif" }}>{queueCompleted}</div>
                           <p className="text-[11px] text-gray-600 mt-1">{t.doneToday}</p>
                         </div>
                       </div>
@@ -1599,6 +1617,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {/* Role Selector Toggle */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl">
+                      <span className="text-xs font-medium text-gray-500">Role:</span>
+                      <select
+                        value={staffRole}
+                        onChange={(e) => setStaffRole(e.target.value as StaffRole)}
+                        className="bg-transparent text-sm font-bold text-indigo-700 focus:outline-none cursor-pointer"
+                      >
+                        <option value="admin">Administrator</option>
+                        <option value="doctor">Doctor</option>
+                        <option value="admission_staff">Admission Staff</option>
+                        <option value="ward_nurse">Ward Nurse</option>
+                        <option value="housekeeping">Housekeeping</option>
+                      </select>
+                    </div>
+
                     {/* Incoming Bed Requests Button - Always Visible */}
                     <button
                       onClick={() => setShowBedRequestsPopup(true)}
@@ -3880,12 +3914,15 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                               onClick={async () => {
                                 try {
                                   await updateBedRequest(request.id || request._id!, { status: 'approved', isRead: true });
-                                  toast.success('Request approved');
-                                  // Refresh the list
+                                  // Refresh the bed requests list
                                   const updated = await getBedRequests();
                                   setBedRequests(updated);
                                   const count = await getBedRequestCount();
                                   setBedRequestCount(count);
+                                  // REFRESH BEDS DATA to show the newly reserved bed
+                                  const refreshedBeds = await getHospitalBeds();
+                                  setBeds(refreshedBeds);
+                                  toast.success('Request approved! Bed reserved and highlighted in yellow.');
                                 } catch (error) {
                                   toast.error('Failed to approve request');
                                 }
@@ -3982,6 +4019,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         wardType={selectedWardType}
         wardId={selectedWardId}
         onAction={handleBedAction}
+        role={staffRole}
       />
 
       {/* Chatbot */}
