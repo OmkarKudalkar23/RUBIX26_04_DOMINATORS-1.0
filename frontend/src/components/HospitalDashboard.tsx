@@ -44,6 +44,7 @@ import {
   opdCheckIn,
   fetchOpdQueue,
   updateOpdStatus,
+  updateOpdPriority,
 } from "../services/offlineHospitalApi";
 import {
   getCentralizedHospitalCapacity,
@@ -719,7 +720,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const handleUpdateOpdPriority = async (id: string, priority: string) => {
     try {
       // Use offline-aware API - handles online/offline automatically
-      const response = await updateOpdStatus(id, priority as any);
+      const response = await updateOpdPriority(id, priority as any);
 
       // Update local state
       setOpdQueue((prev) => prev.map((entry) =>
@@ -1994,8 +1995,28 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                         value={entry.arrivalStatus || 'waiting'}
                                         onChange={async (e) => {
                                           const newStatus = e.target.value;
-                                          const updated = await updateOpdQueueEntry(entry.id, { arrivalStatus: newStatus as any });
-                                          setOpdQueue(prev => prev.map(p => p.id === entry.id ? updated : p));
+                                          try {
+                                            // Update via backend API
+                                            const response = await fetch(`http://localhost:5000/api/hospital/queue/${entry.id}`, {
+                                              method: 'PATCH',
+                                              headers: {
+                                                'Content-Type': 'application/json',
+                                                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                                              },
+                                              body: JSON.stringify({ arrivalStatus: newStatus })
+                                            });
+
+                                            if (response.ok) {
+                                              const updated = await response.json();
+                                              setOpdQueue(prev => prev.map(p => p.id === entry.id ? { ...p, arrivalStatus: newStatus as any } : p));
+                                              toast.success('Arrival status updated');
+                                            } else {
+                                              toast.error('Failed to update arrival status');
+                                            }
+                                          } catch (error) {
+                                            console.error('Error updating arrival status:', error);
+                                            toast.error('Failed to update arrival status');
+                                          }
                                         }}
                                         className="text-[10px] bg-transparent border-b border-dashed border-gray-300 focus:border-black cursor-pointer py-0.5"
                                       >

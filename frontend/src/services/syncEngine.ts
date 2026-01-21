@@ -702,6 +702,9 @@ export async function createOfflineOpdCheckIn(
 ): Promise<OfflineOpdEntry> {
     const { generateOfflineId, getTimestamp } = await import('./offlineDb');
 
+    console.log('[createOfflineOpdCheckIn] Received checkInData:', checkInData);
+    console.log('[createOfflineOpdCheckIn] estimatedArrivalTime:', checkInData.estimatedArrivalTime);
+
     const offlineId = generateOfflineId();
     const timestamp = getTimestamp();
 
@@ -716,6 +719,9 @@ export async function createOfflineOpdCheckIn(
         lastSyncedAt: timestamp,
         isOfflineCreated: true
     };
+
+    console.log('[createOfflineOpdCheckIn] Created entry:', entry);
+    console.log('[createOfflineOpdCheckIn] Entry ETA:', entry.estimatedArrivalTime);
 
     await offlineDb.opdQueue.put(entry);
 

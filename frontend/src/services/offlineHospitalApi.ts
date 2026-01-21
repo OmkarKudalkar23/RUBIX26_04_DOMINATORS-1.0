@@ -308,13 +308,20 @@ export async function fetchOpdQueue(date?: string): Promise<ApiResponse<OfflineO
 
     if (isOnline) {
         try {
-            const response = await fetch(`${HOSPITAL_API_BASE}/opd/queue?date=${queryDate}`, {
+            const response = await fetch(`${HOSPITAL_API_BASE}/queue?date=${queryDate}`, {
                 headers: getAuthHeaders()
             });
 
             if (response.ok) {
                 const queue = await response.json();
                 const timestamp = getTimestamp();
+
+                // Normalize backend data (convert _id to id if needed)
+                const normalizedQueue = queue.map((entry: any) => ({
+                    ...entry,
+                    id: entry.id || entry._id?.toString() || entry._id,
+                    _id: undefined // Remove _id field
+                }));
 
                 // Cache the data (preserve offline-created entries)
                 const offlineEntries = await offlineDb.opdQueue
@@ -323,7 +330,7 @@ export async function fetchOpdQueue(date?: string): Promise<ApiResponse<OfflineO
 
                 await offlineDb.opdQueue.clear();
                 await offlineDb.opdQueue.bulkPut([
-                    ...queue.map((entry: any) => ({
+                    ...normalizedQueue.map((entry: any) => ({
                         ...entry,
                         lastSyncedAt: timestamp,
                         isOfflineCreated: false
@@ -331,7 +338,7 @@ export async function fetchOpdQueue(date?: string): Promise<ApiResponse<OfflineO
                     ...offlineEntries
                 ]);
 
-                return { data: queue, fromCache: false, provisional: false };
+                return { data: normalizedQueue, fromCache: false, provisional: false };
             }
 
             const cachedQueue = await getCachedOpdQueue();
@@ -342,7 +349,8 @@ export async function fetchOpdQueue(date?: string): Promise<ApiResponse<OfflineO
                 error: 'API failed, using cache'
             };
 
-        } catch {
+        } catch (error) {
+            console.error('[fetchOpdQueue] Error:', error);
             const cachedQueue = await getCachedOpdQueue();
             return { data: cachedQueue, fromCache: true, provisional: false };
         }
@@ -372,7 +380,7 @@ export async function opdCheckIn(
 
     if (isOnline) {
         try {
-            const response = await fetch(`${HOSPITAL_API_BASE}/opd/check-in`, {
+            const response = await fetch(`${HOSPITAL_API_BASE}/queue/check-in`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
                 body: JSON.stringify(data)
@@ -381,19 +389,32 @@ export async function opdCheckIn(
             if (response.ok) {
                 const entry = await response.json();
 
-                await offlineDb.opdQueue.put({
+                // Normalize backend data (convert _id to id if needed)
+                const normalizedEntry = {
                     ...entry,
-                    lastSyncedAt: getTimestamp(),
-                    isOfflineCreated: false
-                });
+                    id: entry.id || entry._id?.toString() || entry._id,
+                    _id: undefined // Remove _id field
+                };
 
-                return { data: entry, fromCache: false, provisional: false };
+                try {
+                    await offlineDb.opdQueue.put({
+                        ...normalizedEntry,
+                        lastSyncedAt: getTimestamp(),
+                        isOfflineCreated: false
+                    });
+                } catch (dbError) {
+                    console.error('[opdCheckIn] Dexie error:', dbError);
+                    // Continue even if caching fails
+                }
+
+                return { data: normalizedEntry, fromCache: false, provisional: false };
             }
 
             const error = await response.json().catch(() => ({ message: 'Unknown error' }));
             return { data: null as any, fromCache: false, provisional: false, error: error.message };
 
-        } catch {
+        } catch (error) {
+            console.error('[opdCheckIn] Error:', error);
             // Create offline entry
             const entry = await createOfflineOpdCheckIn({
                 ...data,
@@ -450,7 +471,7 @@ export async function updateOpdStatus(
 
     if (isOnline) {
         try {
-            const response = await fetch(`${HOSPITAL_API_BASE}/opd/queue/${checkInId}`, {
+            const response = await fetch(`${HOSPITAL_API_BASE}/queue/${checkInId}`, {
                 method: 'PATCH',
                 headers: getAuthHeaders(),
                 body: JSON.stringify({ status })
@@ -483,6 +504,65 @@ export async function updateOpdStatus(
 
     await updateOfflineOpdStatus(checkInId, status);
     const entry = await offlineDb.opdQueue.get(checkInId);
+    return { data: entry, fromCache: true, provisional: true };
+}
+
+/**
+ * Update OPD priority - queues action when offline
+ */
+export async function updateOpdPriority(
+    checkInId: string,
+    priority: OfflineOpdEntry['priority']
+): Promise<ApiResponse<any>> {
+    const isOnline = navigator.onLine;
+
+    if (isOnline) {
+        try {
+            const response = await fetch(`${HOSPITAL_API_BASE}/queue/${checkInId}`, {
+                method: 'PATCH',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ priority })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                await offlineDb.opdQueue.put({
+                    ...data,
+                    lastSyncedAt: getTimestamp(),
+                    isOfflineCreated: false
+                });
+                return { data, fromCache: false, provisional: false };
+            }
+
+            const error = await response.json().catch(() => ({ message: 'Unknown error' }));
+            return { data: null, fromCache: false, provisional: false, error: error.message };
+
+        } catch {
+            // Update priority offline
+            const entry = await offlineDb.opdQueue.get(checkInId);
+            if (entry) {
+                entry.priority = priority;
+                entry.lastSyncedAt = getTimestamp();
+                await offlineDb.opdQueue.put(entry);
+                await addPendingAction('OPD_UPDATE_PRIORITY', { checkInId, priority });
+            }
+            return {
+                data: entry,
+                fromCache: true,
+                provisional: true,
+                error: '⚠️ PROVISIONAL: Priority updated offline'
+            };
+        }
+    }
+
+    // Offline mode - update priority locally and queue action
+    const entry = await offlineDb.opdQueue.get(checkInId);
+    if (entry) {
+        entry.priority = priority;
+        entry.lastSyncedAt = getTimestamp();
+        await offlineDb.opdQueue.put(entry);
+        await addPendingAction('OPD_UPDATE_PRIORITY', { checkInId, priority });
+    }
     return { data: entry, fromCache: true, provisional: true };
 }
 
@@ -873,6 +953,7 @@ export default {
     fetchOpdQueue,
     opdCheckIn,
     updateOpdStatus,
+    updateOpdPriority,
 
     // Admissions
     fetchAdmissions,
