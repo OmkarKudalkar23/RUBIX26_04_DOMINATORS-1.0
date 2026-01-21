@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { getHospitalAnalytics, type HospitalAnalytics } from '../services/analytics';
-import { getHospitalDoctorSlots, toggleDoctorActive, type DoctorSlot } from '../services/api';
+import { type DoctorSlot } from '../services/api';
 import { Clock, Users, TrendingUp, Activity, Power, User } from 'lucide-react';
 
 interface OpdQueueEntry {
@@ -13,24 +13,23 @@ interface OpdQueueEntry {
 
 interface OpdDashboardProps {
     opdQueue: OpdQueueEntry[];
+    doctorSlots: DoctorSlot[];
     refreshKey?: number;
+    onToggleDoctorActive: (slotId: string) => void;
 }
 
-export const OpdDashboard: React.FC<OpdDashboardProps> = ({ opdQueue, refreshKey = 0 }) => {
+export const OpdDashboard: React.FC<OpdDashboardProps> = ({ opdQueue, doctorSlots, refreshKey = 0, onToggleDoctorActive }) => {
     const [analytics, setAnalytics] = useState<HospitalAnalytics | null>(null);
-    const [doctorSlots, setDoctorSlots] = useState<DoctorSlot[]>([]);
+    // doctorSlots is now a prop
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [analyticsData, slotsData] = await Promise.all([
-                    getHospitalAnalytics(),
-                    getHospitalDoctorSlots()
-                ]);
+                // Only fetch analytics, slots come from parent
+                const analyticsData = await getHospitalAnalytics();
                 setAnalytics(analyticsData);
-                setDoctorSlots(slotsData);
             } catch (error) {
-                console.error('Failed to fetch data:', error);
+                console.error('Failed to fetch analytics:', error);
             }
         };
         fetchData();
@@ -38,15 +37,8 @@ export const OpdDashboard: React.FC<OpdDashboardProps> = ({ opdQueue, refreshKey
         return () => clearInterval(interval);
     }, [refreshKey]);
 
-    const handleToggleDoctorActive = async (slotId: string) => {
-        try {
-            const updated = await toggleDoctorActive(slotId);
-            setDoctorSlots(prev =>
-                prev.map(slot => slot.id === slotId ? { ...slot, ...updated } : slot)
-            );
-        } catch (error) {
-            console.error('Failed to toggle doctor status:', error);
-        }
+    const handleToggleDoctorActive = (slotId: string) => {
+        onToggleDoctorActive(slotId);
     };
 
     const waitingCount = opdQueue.filter(e => e.status === 'checked-in' || e.status === 'in-triage').length;

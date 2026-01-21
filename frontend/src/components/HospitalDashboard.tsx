@@ -8,6 +8,7 @@ import {
   updateHospitalBed,
   getHospitalDoctorSlots,
   toggleHospitalDoctorSlot,
+  toggleDoctorActive, // Added import
   getHospitalStaff,
   updateHospitalStaffStatus,
   deleteHospitalStaff,
@@ -114,6 +115,7 @@ import {
 import { translations } from "../utils/translations";
 import { AnalyticsTab } from './AnalyticsTab';
 import { OpdDashboard } from './OpdDashboard';
+import { CentralizedDashboard } from './CentralizedDashboard';
 
 interface HospitalDashboardProps {
   onLogout: () => void;
@@ -576,6 +578,19 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     }
   };
 
+  const handleDoctorStatusToggle = async (slotId: string) => {
+    try {
+      const updated = await toggleDoctorActive(slotId);
+      setDoctorSlots((prevSlots) =>
+        prevSlots.map((doctor) => (doctor.id === slotId ? { ...doctor, ...updated } : doctor))
+      );
+      toast.success(updated.isActive ? "Doctor is now On Duty" : "Doctor is now Off Duty");
+    } catch (error: any) {
+      console.error("Error toggling doctor status:", error);
+      toast.error(error.message || "Failed to toggle doctor status");
+    }
+  };
+
   // Handle staff operations
   const handleUpdateStaffStatus = async (staffId: string, newStatus: StaffMember["status"]) => {
     try {
@@ -631,6 +646,12 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     try {
       const updated = await updateOpdQueueEntry(id, { status: status as any });
       setOpdQueue((prev) => prev.map((entry) => (entry.id === id ? updated : entry)));
+
+      // Refresh Doctor Slots immediately to reflect Busy/Free status change in Right Panel
+      getHospitalDoctorSlots()
+        .then((data) => setDoctorSlots(data))
+        .catch(console.error);
+
       toast.success(`Status updated to ${status}`);
     } catch (error: any) {
       console.error('Error updating status:', error);
@@ -1794,7 +1815,11 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   </div>
 
                   {/* Analytics Dashboard - Right Half */}
-                  <OpdDashboard opdQueue={opdQueue} />
+                  <OpdDashboard
+                    opdQueue={opdQueue}
+                    doctorSlots={doctorSlots}
+                    onToggleDoctorActive={handleDoctorStatusToggle}
+                  />
                 </div>
 
 
@@ -1859,8 +1884,20 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                   <div>
                                     <p className="text-xs text-gray-500 uppercase tracking-wide">Status</p>
                                     <div className="flex items-center gap-2">
+                                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${entry.status === 'in-consult' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
+                                          entry.status === 'in-triage' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
+                                            entry.status === 'completed' ? 'bg-green-100 text-green-700 border border-green-200' :
+                                              'bg-blue-50 text-blue-700 border border-blue-100'
+                                        }`}>
+                                        {entry.status === 'in-consult' ? 'In Consult' :
+                                          entry.status === 'in-triage' ? 'Triage' :
+                                            entry.status === 'checked-in' ? 'Waiting' : entry.status}
+                                      </span>
+                                    </div>
+                                    {/* Arrival Status dropdown moved below or beside */}
+                                    <div className="flex items-center gap-2 mt-1">
                                       {(entry.arrivalStatus === 'delayed' || entry.arrivalStatus === 'no-show') && (
-                                        <AlertTriangle className="w-4 h-4 text-orange-500" />
+                                        <AlertTriangle className="w-3 h-3 text-orange-500" />
                                       )}
                                       <select
                                         value={entry.arrivalStatus || 'waiting'}
@@ -1869,7 +1906,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                           const updated = await updateOpdQueueEntry(entry.id, { arrivalStatus: newStatus as any });
                                           setOpdQueue(prev => prev.map(p => p.id === entry.id ? updated : p));
                                         }}
-                                        className="text-sm bg-transparent border-b border-dashed border-gray-300 focus:border-black cursor-pointer py-0.5"
+                                        className="text-[10px] bg-transparent border-b border-dashed border-gray-300 focus:border-black cursor-pointer py-0.5"
                                       >
                                         <option value="waiting">Waiting</option>
                                         <option value="arrived">Arrived</option>
@@ -2366,6 +2403,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     ))}
                   </div>
                 </div>
+              )
+            }
+
+            {/* Inventory Tab */}
+            {
+              activeTab === "inventory" && (
+                <div className="space-y-6">
+                  <InventoryTab />
+                </div>
+              )
+            }
+
+            {/* City Dashboard Tab */}
+            {
+              activeTab === "city" && (
+                <CentralizedDashboard onLogout={onLogout} isEmbedded={true} />
               )
             }
 

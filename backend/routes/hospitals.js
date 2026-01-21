@@ -89,8 +89,8 @@ router.post('/', async (req, res) => {
       const a =
         Math.sin(dLat / 2) ** 2 +
         Math.cos((lat * Math.PI) / 180) *
-          Math.cos((hospital.lat * Math.PI) / 180) *
-          Math.sin(dLon / 2) ** 2;
+        Math.cos((hospital.lat * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
       const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return { ...hospital, distance };
     });
@@ -185,8 +185,8 @@ router.post('/patient/:patientId', async (req, res) => {
       const a =
         Math.sin(dLat / 2) ** 2 +
         Math.cos((lat * Math.PI) / 180) *
-          Math.cos((hospital.lat * Math.PI) / 180) *
-          Math.sin(dLon / 2) ** 2;
+        Math.cos((hospital.lat * Math.PI) / 180) *
+        Math.sin(dLon / 2) ** 2;
       const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return { ...hospital, distance };
     });
@@ -229,10 +229,10 @@ router.get('/:id/summary', async (req, res) => {
     // Get today's appointments
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
-    
+
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     const todayAppointments = await Appointment.find({
       hospitalId: req.params.id,
       date: { $gte: startOfDay, $lte: endOfDay }
@@ -241,7 +241,7 @@ router.get('/:id/summary', async (req, res) => {
     // Get upcoming surge predictions
     const nextWeek = new Date();
     nextWeek.setDate(nextWeek.getDate() + 7);
-    
+
     const surgePredictions = await SurgePrediction.find({
       hospitalId: req.params.id,
       date: { $gte: new Date(), $lte: nextWeek }
@@ -317,7 +317,11 @@ router.get('/capacity', async (req, res) => {
           type: b.type,
           total: b.total,
           occupied: b.occupied,
-          available: b.available
+          available: b.available,
+          beds: b.beds ? b.beds.map(bed => ({
+            number: bed.number,
+            status: bed.status
+          })) : []
         }));
 
         // OPD Appointments - today (anonymized counts only)

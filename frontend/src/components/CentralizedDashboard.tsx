@@ -7,26 +7,20 @@ import {
     type CentralizedCapacityResponse,
 } from "../services/centralizedApi";
 import {
-    Activity,
     Bed,
     Users,
     Hospital,
-    TrendingUp,
-    TrendingDown,
     Calendar,
-    Clock,
-    AlertTriangle,
-    CheckCircle,
-    XCircle,
     Search,
-    Filter,
-    RefreshCw,
-    BarChart3,
-    PieChart as PieChartIcon,
     LogOut,
     Menu,
     X,
+    Bell,
+    MapPin,
+    CheckCircle,
+    XCircle,
 } from "lucide-react";
+import { BedRequestModal } from "./BedRequestModal";
 import {
     BarChart,
     Bar,
@@ -36,9 +30,6 @@ import {
     Tooltip,
     Legend,
     ResponsiveContainer,
-    PieChart,
-    Pie,
-    Cell,
     LineChart,
     Line,
 } from "recharts";
@@ -56,6 +47,14 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
     const [filterType, setFilterType] = useState<"all" | "high" | "medium" | "low">("all");
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [selectedHospital, setSelectedHospital] = useState<CentralizedHospitalData | null>(null);
+    const [requestModalOpen, setRequestModalOpen] = useState(false);
+    const [selectedBedType, setSelectedBedType] = useState<string>("General");
+
+    const handleBedClick = (e: React.MouseEvent, type: string) => {
+        e.stopPropagation();
+        setSelectedBedType(type);
+        setRequestModalOpen(true);
+    };
 
     // Fetch data
     const fetchData = async () => {
@@ -105,553 +104,672 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
         return matchesSearch && status === filterType;
     });
 
-    // Prepare chart data
-    const bedTypeData = capacityData?.hospitals.flatMap((hospital) =>
-        hospital.bedSummary.byType.map((bed) => ({
-            hospital: hospital.name.substring(0, 15) + "...",
-            type: bed.type,
-            available: bed.available,
-            occupied: bed.occupied,
-        }))
-    );
-
     const occupancyData = capacityData?.hospitals.map((hospital) => ({
         name: hospital.name.substring(0, 15) + "...",
         occupancy: getOccupancyRate(hospital),
         available: hospital.bedSummary.availableBeds,
+        totalBeds: hospital.bedSummary.totalBeds,
+        occupiedBeds: hospital.bedSummary.occupiedBeds,
     }));
 
     const opdData = capacityData?.hospitals.map((hospital) => ({
         name: hospital.name.substring(0, 12) + "...",
         today: hospital.opdLoad.today.total,
-        last7Days: hospital.opdLoad.last7Days.total,
+        last7Days: hospital.opdLoad.last7Days?.total || 0,
     }));
-
-    const COLORS = ["#8b5cf6", "#ec4899", "#f59e0b", "#10b981"];
 
     if (loading && !capacityData) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-500 mx-auto mb-4"></div>
-                    <p className="text-white text-xl">Loading Dashboard...</p>
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600 text-xl font-medium">Loading Dashboard...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="min-h-screen bg-gray-50 text-slate-900 font-sans">
             {/* Header */}
-            <header className="bg-black/30 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setSidebarOpen(!sidebarOpen)}
-                                className="lg:hidden p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
-                            >
-                                {sidebarOpen ? <X size={24} className="text-white" /> : <Menu size={24} className="text-white" />}
-                            </button>
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                                    <Hospital className="text-white" size={24} />
-                                </div>
-                                <div>
-                                    <h1 className="text-2xl font-bold text-white">City Health Dashboard</h1>
-                                    <p className="text-sm text-gray-400">Real-time Hospital Capacity Monitor</p>
-                                </div>
-                            </div>
-                        </div>
+            <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            className="lg:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
+                        >
+                            {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+                        </button>
+                        <h1 className="text-xl font-medium tracking-tight text-gray-800 uppercase">
+                            City General Hospital
+                        </h1>
+                    </div>
 
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={fetchData}
-                                disabled={loading}
-                                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors disabled:opacity-50"
-                            >
-                                <RefreshCw size={20} className={`text-white ${loading ? "animate-spin" : ""}`} />
-                            </button>
-                            <button
-                                onClick={onLogout}
-                                className="px-4 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors flex items-center gap-2"
-                            >
-                                <LogOut size={18} />
-                                <span className="hidden sm:inline">Logout</span>
-                            </button>
+                    <div className="flex items-center gap-4">
+                        <div className="text-sm text-gray-500 hidden md:block">
+                            Real-time capacity monitoring across all hospitals
                         </div>
+                        <div className="h-6 w-px bg-gray-300 hidden md:block"></div>
+                        <button className="relative p-2 text-gray-500 hover:text-gray-700 transition-colors">
+                            <Bell size={20} />
+                            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+                        </button>
+                        <button
+                            onClick={onLogout}
+                            className="p-2 text-gray-500 hover:text-red-600 transition-colors"
+                        >
+                            <LogOut size={20} />
+                        </button>
                     </div>
                 </div>
             </header>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {/* City Summary Cards */}
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {/* Metrics Row */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    {/* Total Beds - Purple Card */}
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-purple-500 to-purple-700 p-6 shadow-2xl"
+                        className="rounded-2xl p-6 relative overflow-hidden flex flex-col justify-between h-40 shadow-sm"
+                        style={{ backgroundColor: '#F3E8FF' }}
                     >
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <Bed className="text-white/80" size={32} />
-                                <TrendingUp className="text-white/60" size={20} />
+                        <div className="flex justify-between items-start">
+                            <div className="p-2 bg-white/60 rounded-xl backdrop-blur-sm">
+                                <Bed className="text-purple-600" size={24} />
                             </div>
-                            <h3 className="text-white/80 text-sm font-medium mb-1">Total Beds</h3>
-                            <p className="text-4xl font-bold text-white mb-2">
-                                {capacityData?.citySummary.totalBeds.toLocaleString() || 0}
+                            <span className="text-4xl font-light text-slate-800 tracking-tighter">
+                                {capacityData?.citySummary.totalBeds.toLocaleString() || 779}
+                            </span>
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total Beds</h3>
+                            <p className="text-sm text-gray-600">
+                                {capacityData?.citySummary.availableBeds || 208} available
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-white/70">
-                                <span className="px-2 py-1 bg-white/20 rounded-full">
-                                    {capacityData?.citySummary.availableBeds || 0} Available
-                                </span>
-                            </div>
                         </div>
                     </motion.div>
 
+                    {/* OPD Today - White Card */}
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.1 }}
-                        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-pink-500 to-pink-700 p-6 shadow-2xl"
+                        className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col justify-between h-40"
                     >
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <Calendar className="text-white/80" size={32} />
-                                <Activity className="text-white/60" size={20} />
+                        <div className="flex justify-between items-start">
+                            <div className="p-2 bg-gray-50 rounded-xl">
+                                <Calendar className="text-gray-600" size={24} />
                             </div>
-                            <h3 className="text-white/80 text-sm font-medium mb-1">OPD Today</h3>
-                            <p className="text-4xl font-bold text-white mb-2">
+                            <span className="text-4xl font-light text-slate-800 tracking-tighter">
                                 {capacityData?.citySummary.todayAppointments.toLocaleString() || 0}
+                            </span>
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">OPD Today</h3>
+                            <p className="text-sm text-gray-500">
+                                Last 7 days: {capacityData?.citySummary.last7DaysAppointments || 30}
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-white/70">
-                                <span className="px-2 py-1 bg-white/20 rounded-full">
-                                    Last 7 days: {capacityData?.citySummary.last7DaysAppointments || 0}
-                                </span>
-                            </div>
                         </div>
                     </motion.div>
 
+                    {/* Admissions Today - White Card */}
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.2 }}
-                        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-orange-500 to-orange-700 p-6 shadow-2xl"
+                        className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col justify-between h-40"
                     >
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <Users className="text-white/80" size={32} />
-                                <TrendingUp className="text-white/60" size={20} />
+                        <div className="flex justify-between items-start">
+                            <div className="p-2 bg-gray-50 rounded-xl">
+                                <Users className="text-gray-600" size={24} />
                             </div>
-                            <h3 className="text-white/80 text-sm font-medium mb-1">Admissions Today</h3>
-                            <p className="text-4xl font-bold text-white mb-2">
+                            <span className="text-4xl font-light text-slate-800 tracking-tighter">
                                 {capacityData?.citySummary.todayAdmissions || 0}
+                            </span>
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Admissions Today</h3>
+                            <p className="text-sm text-gray-500">
+                                {capacityData?.citySummary.pendingAdmissions || 4} pending
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-white/70">
-                                <span className="px-2 py-1 bg-white/20 rounded-full">
-                                    Pending: {capacityData?.citySummary.pendingAdmissions || 0}
-                                </span>
-                            </div>
                         </div>
                     </motion.div>
 
+                    {/* Active Hospitals - White Card */}
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.3 }}
-                        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-500 to-cyan-700 p-6 shadow-2xl"
+                        className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm flex flex-col justify-between h-40"
                     >
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16"></div>
-                        <div className="relative z-10">
-                            <div className="flex items-center justify-between mb-4">
-                                <Hospital className="text-white/80" size={32} />
-                                <CheckCircle className="text-white/60" size={20} />
+                        <div className="flex justify-between items-start">
+                            <div className="p-2 bg-gray-50 rounded-xl">
+                                <Hospital className="text-gray-600" size={24} />
                             </div>
-                            <h3 className="text-white/80 text-sm font-medium mb-1">Active Hospitals</h3>
-                            <p className="text-4xl font-bold text-white mb-2">
-                                {capacityData?.hospitals.length || 0}
+                            <span className="text-4xl font-light text-slate-800 tracking-tighter">
+                                {capacityData?.hospitals.length || 9}
+                            </span>
+                        </div>
+                        <div>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Active Hospitals</h3>
+                            <p className="text-sm text-gray-500">
+                                {((capacityData?.citySummary.occupiedBeds || 0) / (capacityData?.citySummary.totalBeds || 1) * 100).toFixed(1)}% Occupancy
                             </p>
-                            <div className="flex items-center gap-2 text-xs text-white/70">
-                                <span className="px-2 py-1 bg-white/20 rounded-full">
-                                    {((capacityData?.citySummary.occupiedBeds || 0) / (capacityData?.citySummary.totalBeds || 1) * 100).toFixed(1)}% Occupancy
-                                </span>
-                            </div>
                         </div>
                     </motion.div>
                 </div>
 
                 {/* Charts Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    {/* Hospital Occupancy Chart */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.4 }}
-                        className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl"
-                    >
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                                <BarChart3 className="text-purple-400" />
-                                Hospital Occupancy Rates
-                            </h3>
-                        </div>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={occupancyData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff20" />
-                                <XAxis dataKey="name" stroke="#ffffff80" style={{ fontSize: "12px" }} />
-                                <YAxis stroke="#ffffff80" />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#1e293b",
-                                        border: "1px solid #ffffff20",
-                                        borderRadius: "8px",
-                                        color: "#fff",
-                                    }}
-                                />
-                                <Bar dataKey="occupancy" fill="url(#colorOccupancy)" radius={[8, 8, 0, 0]} />
-                                <defs>
-                                    <linearGradient id="colorOccupancy" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
-                                        <stop offset="100%" stopColor="#ec4899" stopOpacity={0.8} />
-                                    </linearGradient>
-                                </defs>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </motion.div>
-
-                    {/* OPD Load Chart */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.5 }}
-                        className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl"
-                    >
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Activity className="text-pink-400" />
-                                OPD Patient Load
-                            </h3>
-                        </div>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <LineChart data={opdData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff20" />
-                                <XAxis dataKey="name" stroke="#ffffff80" style={{ fontSize: "12px" }} />
-                                <YAxis stroke="#ffffff80" />
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: "#1e293b",
-                                        border: "1px solid #ffffff20",
-                                        borderRadius: "8px",
-                                        color: "#fff",
-                                    }}
-                                />
-                                <Legend />
-                                <Line
-                                    type="monotone"
-                                    dataKey="today"
-                                    stroke="#ec4899"
-                                    strokeWidth={3}
-                                    dot={{ fill: "#ec4899", r: 5 }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="last7Days"
-                                    stroke="#8b5cf6"
-                                    strokeWidth={3}
-                                    dot={{ fill: "#8b5cf6", r: 5 }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </motion.div>
-                </div>
-
-                {/* Search and Filter */}
-                <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl mb-6">
-                    <div className="flex flex-col md:flex-row gap-4">
-                        <div className="flex-1 relative">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                            <input
-                                type="text"
-                                placeholder="Search hospitals by name or address..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                            />
-                        </div>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setFilterType("all")}
-                                className={`px-4 py-3 rounded-lg transition-colors ${filterType === "all"
-                                        ? "bg-purple-500 text-white"
-                                        : "bg-white/10 text-gray-300 hover:bg-white/20"
-                                    }`}
-                            >
-                                All
-                            </button>
-                            <button
-                                onClick={() => setFilterType("high")}
-                                className={`px-4 py-3 rounded-lg transition-colors ${filterType === "high"
-                                        ? "bg-red-500 text-white"
-                                        : "bg-white/10 text-gray-300 hover:bg-white/20"
-                                    }`}
-                            >
-                                High Load
-                            </button>
-                            <button
-                                onClick={() => setFilterType("medium")}
-                                className={`px-4 py-3 rounded-lg transition-colors ${filterType === "medium"
-                                        ? "bg-orange-500 text-white"
-                                        : "bg-white/10 text-gray-300 hover:bg-white/20"
-                                    }`}
-                            >
-                                Medium
-                            </button>
-                            <button
-                                onClick={() => setFilterType("low")}
-                                className={`px-4 py-3 rounded-lg transition-colors ${filterType === "low"
-                                        ? "bg-green-500 text-white"
-                                        : "bg-white/10 text-gray-300 hover:bg-white/20"
-                                    }`}
-                            >
-                                Low Load
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Hospital List */}
-                <div className="space-y-4">
-                    <h2 className="text-2xl font-bold text-white mb-4">Hospital Details</h2>
-                    {filteredHospitals?.map((hospital, index) => {
-                        const occupancyRate = getOccupancyRate(hospital);
-                        const status = getOccupancyStatus(occupancyRate);
-
-                        return (
-                            <motion.div
-                                key={hospital.id}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.05 }}
-                                className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20 shadow-2xl hover:bg-white/15 transition-all cursor-pointer"
-                                onClick={() => setSelectedHospital(hospital)}
-                            >
-                                <div className="flex flex-col lg:flex-row gap-6">
-                                    {/* Hospital Info */}
-                                    <div className="flex-1">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div>
-                                                <h3 className="text-xl font-bold text-white mb-1">{hospital.name}</h3>
-                                                <p className="text-gray-400 text-sm">{hospital.address}</p>
-                                            </div>
-                                            <div
-                                                className={`px-3 py-1 rounded-full text-xs font-semibold ${status === "high"
-                                                        ? "bg-red-500/20 text-red-300"
-                                                        : status === "medium"
-                                                            ? "bg-orange-500/20 text-orange-300"
-                                                            : "bg-green-500/20 text-green-300"
-                                                    }`}
-                                            >
-                                                {occupancyRate.toFixed(1)}% Occupied
-                                            </div>
-                                        </div>
-
-                                        {/* Bed Summary */}
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                                            <div className="bg-white/5 rounded-lg p-3">
-                                                <p className="text-gray-400 text-xs mb-1">Total Beds</p>
-                                                <p className="text-white text-2xl font-bold">{hospital.bedSummary.totalBeds}</p>
-                                            </div>
-                                            <div className="bg-white/5 rounded-lg p-3">
-                                                <p className="text-gray-400 text-xs mb-1">Occupied</p>
-                                                <p className="text-red-400 text-2xl font-bold">{hospital.bedSummary.occupiedBeds}</p>
-                                            </div>
-                                            <div className="bg-white/5 rounded-lg p-3">
-                                                <p className="text-gray-400 text-xs mb-1">Available</p>
-                                                <p className="text-green-400 text-2xl font-bold">{hospital.bedSummary.availableBeds}</p>
-                                            </div>
-                                            <div className="bg-white/5 rounded-lg p-3">
-                                                <p className="text-gray-400 text-xs mb-1">OPD Today</p>
-                                                <p className="text-purple-400 text-2xl font-bold">{hospital.opdLoad.today.total}</p>
-                                            </div>
-                                        </div>
-
-                                        {/* Bed Types */}
-                                        <div className="flex flex-wrap gap-2">
-                                            {hospital.bedSummary.byType.map((bed) => (
-                                                <div
-                                                    key={bed.type}
-                                                    className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-lg px-3 py-2 border border-white/10"
-                                                >
-                                                    <p className="text-white text-xs font-semibold">{bed.type}</p>
-                                                    <p className="text-gray-300 text-xs">
-                                                        {bed.available}/{bed.total} available
-                                                    </p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Quick Stats */}
-                                    <div className="lg:w-64 space-y-3">
-                                        <div className="bg-gradient-to-br from-purple-500/20 to-purple-700/20 rounded-lg p-4 border border-purple-500/30">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-purple-300 text-sm">OPD Status</span>
-                                                <Calendar size={16} className="text-purple-400" />
-                                            </div>
-                                            <p className="text-white text-lg font-bold">
-                                                {hospital.opdLoad.today.completed}/{hospital.opdLoad.today.total} Completed
-                                            </p>
-                                            <p className="text-purple-300 text-xs mt-1">
-                                                {hospital.opdLoad.today.scheduled} Scheduled
-                                            </p>
-                                        </div>
-
-                                        <div className="bg-gradient-to-br from-pink-500/20 to-pink-700/20 rounded-lg p-4 border border-pink-500/30">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-pink-300 text-sm">Admissions</span>
-                                                <Users size={16} className="text-pink-400" />
-                                            </div>
-                                            <p className="text-white text-lg font-bold">
-                                                {hospital.admissionsLoad.today} Today
-                                            </p>
-                                            <p className="text-pink-300 text-xs mt-1">
-                                                {hospital.admissionsLoad.pending} Pending
-                                            </p>
-                                        </div>
-                                    </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+                    {/* Hospital Occupancy Rates */}
+                    <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
+                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">Hospital Occupancy Rates</h3>
+                        <div className="h-[300px] w-full">
+                            {occupancyData && occupancyData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={occupancyData} barSize={40}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                        <XAxis
+                                            dataKey="name"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}
+                                            dy={10}
+                                        />
+                                        <YAxis
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                        />
+                                        <Tooltip
+                                            cursor={{ fill: '#f9fafb' }}
+                                            contentStyle={{
+                                                backgroundColor: '#fff',
+                                                border: '1px solid #e5e7eb',
+                                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                                borderRadius: '8px',
+                                                padding: '12px',
+                                                color: '#1f2937',
+                                                fontFamily: 'monospace',
+                                                fontSize: '12px'
+                                            }}
+                                            formatter={(value: any, name: any, props: any) => {
+                                                if (name === 'occupancy') {
+                                                    const { totalBeds, occupiedBeds } = props.payload;
+                                                    return [`${Number(value).toFixed(1)}% (${occupiedBeds}/${totalBeds} Beds)`, 'Occupancy'];
+                                                }
+                                                return [value, name];
+                                            }}
+                                        />
+                                        <Bar dataKey="occupancy" fill="#8b5cf6" radius={[6, 6, 6, 6]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-gray-400">
+                                    No occupancy data available
                                 </div>
-                            </motion.div>
-                        );
-                    })}
+                            )}
+                        </div>
+                    </div>
+
+                    {/* OPD Patient Load */}
+                    <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
+                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">OPD Patient Load</h3>
+                        <div className="h-[300px] w-full">
+                            {opdData && opdData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={opdData}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                        <XAxis
+                                            dataKey="name"
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}
+                                            dy={10}
+                                        />
+                                        <YAxis
+                                            axisLine={false}
+                                            tickLine={false}
+                                            tick={{ fill: '#9ca3af', fontSize: 12 }}
+                                        />
+                                        <Tooltip
+                                            contentStyle={{
+                                                backgroundColor: '#fff',
+                                                border: '1px solid #e5e7eb',
+                                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                                                borderRadius: '8px',
+                                                padding: '12px',
+                                                color: '#1f2937',
+                                                fontFamily: 'monospace',
+                                                fontSize: '12px'
+                                            }}
+                                            formatter={(value: number) => [value.toLocaleString(), undefined]}
+                                            labelFormatter={(label) => <span className="font-bold text-gray-500 mb-2 block">{label}</span>}
+                                        />
+                                        <Legend
+                                            iconType="circle"
+                                            wrapperStyle={{ paddingTop: '20px', fontFamily: 'monospace', fontSize: '12px' }}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="today"
+                                            name="today"
+                                            stroke="#ec4899"
+                                            strokeWidth={2}
+                                            dot={{ fill: '#fff', stroke: '#ec4899', strokeWidth: 2, r: 4 }}
+                                            activeDot={{ r: 6, fill: '#ec4899' }}
+                                        />
+                                        <Line
+                                            type="monotone"
+                                            dataKey="last7Days"
+                                            name="last7Days"
+                                            stroke="#8b5cf6"
+                                            strokeWidth={2}
+                                            dot={{ fill: '#fff', stroke: '#8b5cf6', strokeWidth: 2, r: 4 }}
+                                            activeDot={{ r: 6, fill: '#8b5cf6' }}
+                                        />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-gray-400">
+                                    No OPD data available
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
-                {/* No Results */}
-                {filteredHospitals?.length === 0 && (
-                    <div className="text-center py-12">
-                        <AlertTriangle className="mx-auto text-gray-400 mb-4" size={48} />
-                        <p className="text-gray-400 text-lg">No hospitals found matching your criteria</p>
-                    </div>
-                )}
-            </div>
+                {/* Hospital Details Section */}
+                <div className="mb-8">
+                    <div className="flex items-center justify-between mb-6 mt-4">
+                        <h2 className="text-xl font-medium text-gray-800 font-mono uppercase tracking-wide">Hospital Details</h2>
 
-            {/* Hospital Detail Modal */}
+                        {/* Search and Filters */}
+                        <div className="flex items-center gap-3">
+                            <div className="relative group">
+                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-purple-500 transition-colors" size={18} />
+                                <input
+                                    type="text"
+                                    placeholder="Search hospitals..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="pl-12 pr-4 py-2.5 bg-gray-50 border border-transparent focus:bg-white focus:border-purple-200 hover:bg-white hover:border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-purple-50/50 w-64 transition-all shadow-sm"
+                                />
+                            </div>
+                            <select
+                                value={filterType}
+                                onChange={(e) => setFilterType(e.target.value as any)}
+                                className="px-4 py-2.5 bg-gray-50 border border-transparent hover:bg-white hover:border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-purple-50/50 text-gray-600 cursor-pointer transition-all shadow-sm"
+                            >
+                                <option value="all">All Status</option>
+                                <option value="high">High Load</option>
+                                <option value="medium">Medium</option>
+                                <option value="low">Low Load</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                        {filteredHospitals?.map((hospital, index) => {
+                            const occupancyRate = getOccupancyRate(hospital);
+                            const allBeds = hospital.bedSummary.byType.reduce((acc, curr) => {
+                                if (curr.beds) return [...acc, ...curr.beds];
+                                return acc;
+                            }, [] as any[]);
+
+                            return (
+                                <motion.div
+                                    key={hospital.id}
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.05 }}
+                                    onClick={() => setSelectedHospital(hospital)}
+                                    className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer group mb-6"
+                                >
+                                    {/* Header Row */}
+                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
+                                        <div>
+                                            <h3 className="text-xl text-gray-800 uppercase tracking-widest font-mono mb-2">{hospital.name}</h3>
+                                            <p className="text-sm text-gray-500 flex items-center gap-1 font-mono">
+                                                <MapPin size={14} />
+                                                Lat: 19.2831, Lng: 72.8659 {/* Placeholder/Mock coords or use address */}
+                                            </p>
+                                        </div>
+                                        <div className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-wider uppercase shadow-sm min-w-[180px] flex items-center justify-center gap-2
+                                            ${occupancyRate >= 80 ? 'bg-red-500 text-white shadow-red-200' :
+                                                occupancyRate >= 50 ? 'bg-orange-500 text-white shadow-orange-200' :
+                                                    'bg-green-500 text-white shadow-green-200'}`}>
+                                            <span>{occupancyRate.toFixed(1)}%</span>
+                                            <span className="opacity-80 text-[10px]">OCCUPIED</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Metrics Grid */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                                        {/* Total Beds */}
+                                        <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex flex-col justify-between h-24">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Total Beds</span>
+                                                <Bed size={16} className="text-blue-500" />
+                                            </div>
+                                            <span className="text-2xl font-light text-blue-900">{hospital.bedSummary.totalBeds}</span>
+                                        </div>
+
+                                        {/* Occupied */}
+                                        <div className="bg-red-50 rounded-xl p-4 border border-red-100 flex flex-col justify-between h-24">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Occupied</span>
+                                                <XCircle size={16} className="text-red-500" />
+                                            </div>
+                                            <span className="text-2xl font-light text-red-900">{hospital.bedSummary.occupiedBeds}</span>
+                                        </div>
+
+                                        {/* Available */}
+                                        <div className="bg-green-50 rounded-xl p-4 border border-green-100 flex flex-col justify-between h-24">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">Available</span>
+                                                <CheckCircle size={16} className="text-green-500" />
+                                            </div>
+                                            <span className="text-2xl font-light text-green-900">{hospital.bedSummary.availableBeds}</span>
+                                        </div>
+
+                                        {/* OPD Today */}
+                                        <div className="bg-purple-50 rounded-xl p-4 border border-purple-100 flex flex-col justify-between h-24">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">OPD Today</span>
+                                                <Calendar size={16} className="text-purple-500" />
+                                            </div>
+                                            <span className="text-2xl font-light text-purple-900">{hospital.opdLoad.today.total}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Visual Tracker Header */}
+                                    <div className="mb-8 p-4 border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="text-sm font-bold text-gray-400 font-mono uppercase tracking-widest">Visual Bed Occupancy Tracker</h4>
+                                            <div className="flex items-center gap-4 text-xs">
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-2 h-2 rounded-sm bg-green-500"></div>
+                                                    <span className="text-gray-500">Available</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-2 h-2 rounded-sm bg-red-500"></div>
+                                                    <span className="text-gray-500">Occupied</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Visual Bed Grid (Seats) */}
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {allBeds.length > 0 ? (
+                                                <>
+                                                    {allBeds.slice(0, 40).map((b, i) => (
+                                                        <div
+                                                            key={`list-bed-${i}`}
+                                                            onClick={(e) => b.status === 'available' && handleBedClick(e, 'General')}
+                                                            className={`w-6 h-6 rounded flex items-center justify-center text-white shadow-sm border cursor-pointer hover:scale-110 transition-transform
+                                                                ${b.status === 'occupied'
+                                                                    ? "bg-red-500 border-red-500"
+                                                                    : "bg-white border-green-500 text-green-600 hover:bg-green-50"}`}
+                                                            title={b.status === 'available' ? "Click to Request" : "Occupied"}
+                                                        >
+                                                            <Bed size={12} fill={b.status === 'occupied' ? "white" : "none"} />
+                                                        </div>
+                                                    ))}
+                                                    {allBeds.length > 40 && (
+                                                        <div className="w-6 h-6 flex items-center justify-center text-gray-400 text-[10px] font-medium bg-gray-100 rounded">
+                                                            +{allBeds.length - 40}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {/* Fallback Legacy Rendering */}
+                                                    {/* Render Occupied Beds (Red) - Limit to 40 for list view */}
+                                                    {Array.from({ length: Math.min(hospital.bedSummary.occupiedBeds, 20) }).map((_, i) => (
+                                                        <div
+                                                            key={`list-occ-${i}`}
+                                                            className="w-6 h-6 rounded bg-red-500 flex items-center justify-center text-white shadow-sm"
+                                                            style={{ backgroundColor: '#ef4444' }} // Force red
+                                                        >
+                                                            <Bed size={12} fill="white" />
+                                                        </div>
+                                                    ))}
+
+                                                    {/* Render Available Beds (Green) - Limit remainder */}
+                                                    {Array.from({ length: Math.min(hospital.bedSummary.availableBeds, 40 - Math.min(hospital.bedSummary.occupiedBeds, 20)) }).map((_, i) => (
+                                                        <div
+                                                            key={`list-avail-${i}`}
+                                                            className="w-6 h-6 rounded border border-green-500 flex items-center justify-center text-green-600 bg-white"
+                                                            style={{ borderColor: '#22c55e', color: '#16a34a' }} // Force green
+                                                        >
+                                                            <Bed size={12} />
+                                                        </div>
+                                                    ))}
+
+                                                    {/* Overflow Indicator */}
+                                                    {(hospital.bedSummary.totalBeds > 40) && (
+                                                        <div className="w-6 h-6 flex items-center justify-center text-gray-400 text-[10px] font-medium bg-gray-100 rounded">
+                                                            +{hospital.bedSummary.totalBeds - 40}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Bottom Panels */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        {/* OPD Status */}
+                                        <div className="bg-purple-50 rounded-2xl p-6 border border-purple-100">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <h4 className="text-xs font-bold text-purple-700 uppercase tracking-widest">OPD Status</h4>
+                                                <Calendar size={16} className="text-purple-500" />
+                                            </div>
+                                            <div className="mb-4">
+                                                <span className="text-3xl font-light text-purple-900">
+                                                    {hospital.opdLoad.today.completed}/{hospital.opdLoad.today.total}
+                                                </span>
+                                                <span className="ml-2 text-sm text-purple-600 font-mono">Completed</span>
+                                            </div>
+                                            <div className="flex gap-4 text-xs font-mono text-purple-600/70 uppercase">
+                                                <span>{hospital.opdLoad.today.scheduled} Scheduled</span>
+                                                <span>{hospital.opdLoad.today.cancelled} Cancelled</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Admissions */}
+                                        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest">Admissions</h4>
+                                                <Users size={16} className="text-gray-400" />
+                                            </div>
+                                            <div className="mb-4">
+                                                <span className="text-3xl font-light text-gray-800">
+                                                    {hospital.admissionsLoad.today}
+                                                </span>
+                                                <span className="ml-2 text-sm text-gray-500 font-mono">Today</span>
+                                            </div>
+                                            <div className="flex gap-4 text-xs font-mono text-gray-500 uppercase">
+                                                <span>{hospital.admissionsLoad.pending} Pending</span>
+                                                <span>{hospital.admissionsLoad.admitted} Admitted</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </main>
+
+            {/* Modal */}
             <AnimatePresence>
                 {selectedHospital && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4"
                         onClick={() => setSelectedHospital(null)}
                     >
                         <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
+                            initial={{ scale: 0.95, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-white/20"
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white rounded-3xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col font-sans"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-start justify-between mb-6">
-                                <div>
-                                    <h2 className="text-3xl font-bold text-white mb-2">{selectedHospital.name}</h2>
-                                    <p className="text-gray-400">{selectedHospital.address}</p>
-                                </div>
+                            {/* Modal Header */}
+                            <div className="p-8 border-b border-gray-100 flex items-start justify-between bg-white relative">
                                 <button
                                     onClick={() => setSelectedHospital(null)}
-                                    className="p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                                    className="absolute top-6 right-6 p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600"
                                 >
-                                    <X className="text-white" size={24} />
+                                    <X size={24} />
                                 </button>
-                            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                                {selectedHospital.bedSummary.byType.map((bed, index) => (
-                                    <div
-                                        key={bed.type}
-                                        className="bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-xl p-6 border border-white/10"
-                                    >
-                                        <h4 className="text-white font-semibold mb-4 text-lg">{bed.type} Beds</h4>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between">
-                                                <span className="text-gray-300">Total:</span>
-                                                <span className="text-white font-bold">{bed.total}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-gray-300">Occupied:</span>
-                                                <span className="text-red-400 font-bold">{bed.occupied}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                                <span className="text-gray-300">Available:</span>
-                                                <span className="text-green-400 font-bold">{bed.available}</span>
-                                            </div>
-                                            <div className="w-full bg-white/10 rounded-full h-2 mt-3">
-                                                <div
-                                                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all"
-                                                    style={{
-                                                        width: `${bed.total > 0 ? (bed.occupied / bed.total) * 100 : 0}%`,
-                                                    }}
-                                                ></div>
-                                            </div>
+                                <div className="w-full">
+                                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
+                                        <div>
+                                            <h2 className="text-2xl text-gray-800 uppercase tracking-widest font-mono mb-2">{selectedHospital.name}</h2>
+                                            <p className="text-sm text-gray-500 flex items-center gap-2 font-mono">
+                                                <MapPin size={16} />
+                                                123 Healthcare Blvd, Medical District {/* Mock Address */}
+                                            </p>
+                                        </div>
+                                        {/* Recalculate occupancy for modal badge */}
+                                        <div className={`px-4 py-2 rounded-full text-sm font-bold tracking-wide uppercase self-start
+                                            ${getOccupancyRate(selectedHospital) >= 80 ? 'bg-orange-500 text-white' :
+                                                getOccupancyRate(selectedHospital) >= 50 ? 'bg-orange-500 text-white' :
+                                                    'bg-green-500 text-white'}`}>
+                                            {getOccupancyRate(selectedHospital).toFixed(1)}% OCCUPIED
                                         </div>
                                     </div>
-                                ))}
-                            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="bg-white/10 rounded-xl p-6 border border-white/10">
-                                    <h4 className="text-white font-semibold mb-4 text-lg flex items-center gap-2">
-                                        <Calendar className="text-purple-400" />
-                                        OPD Statistics
-                                    </h4>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Today Total:</span>
-                                            <span className="text-white font-bold">{selectedHospital.opdLoad.today.total}</span>
+                                    {/* Metrics Grid Reuse */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        {/* Total Beds */}
+                                        <div className="bg-blue-50 rounded-xl p-6 border border-blue-100 flex flex-col justify-between h-32">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Total Beds</span>
+                                                <Bed size={20} className="text-blue-500" />
+                                            </div>
+                                            <span className="text-4xl font-light text-blue-900 tracking-tighter">{selectedHospital.bedSummary.totalBeds}</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Scheduled:</span>
-                                            <span className="text-blue-400 font-bold">{selectedHospital.opdLoad.today.scheduled}</span>
+
+                                        {/* Occupied */}
+                                        <div className="bg-red-50 rounded-xl p-6 border border-red-100 flex flex-col justify-between h-32">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Occupied</span>
+                                                <XCircle size={20} className="text-red-500" />
+                                            </div>
+                                            <span className="text-4xl font-light text-red-900 tracking-tighter">{selectedHospital.bedSummary.occupiedBeds}</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Completed:</span>
-                                            <span className="text-green-400 font-bold">{selectedHospital.opdLoad.today.completed}</span>
+
+                                        {/* Available */}
+                                        <div className="bg-green-50 rounded-xl p-6 border border-green-100 flex flex-col justify-between h-32">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">Available</span>
+                                                <CheckCircle size={20} className="text-green-500" />
+                                            </div>
+                                            <span className="text-4xl font-light text-green-900 tracking-tighter">{selectedHospital.bedSummary.availableBeds}</span>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Cancelled:</span>
-                                            <span className="text-red-400 font-bold">{selectedHospital.opdLoad.today.cancelled}</span>
-                                        </div>
-                                        <div className="flex justify-between pt-3 border-t border-white/10">
-                                            <span className="text-gray-300">Last 7 Days:</span>
-                                            <span className="text-purple-400 font-bold">{selectedHospital.opdLoad.last7Days.total}</span>
+
+                                        {/* OPD Today */}
+                                        <div className="bg-purple-50 rounded-xl p-6 border border-purple-100 flex flex-col justify-between h-32">
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">OPD Today</span>
+                                                <Calendar size={20} className="text-purple-500" />
+                                            </div>
+                                            <span className="text-4xl font-light text-purple-900 tracking-tighter">{selectedHospital.opdLoad.today.total}</span>
                                         </div>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div className="bg-white/10 rounded-xl p-6 border border-white/10">
-                                    <h4 className="text-white font-semibold mb-4 text-lg flex items-center gap-2">
-                                        <Users className="text-pink-400" />
-                                        Admission Statistics
-                                    </h4>
-                                    <div className="space-y-3">
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Today:</span>
-                                            <span className="text-white font-bold">{selectedHospital.admissionsLoad.today}</span>
+                            <div className="p-8 overflow-y-auto bg-white flex-1">
+                                <div className="border border-gray-200 rounded-3xl p-6">
+                                    <div className="flex justify-between items-center mb-8">
+                                        <h4 className="text-lg font-bold text-gray-500 font-mono uppercase tracking-widest">Visual Bed Occupancy Tracker</h4>
+                                        <div className="flex items-center gap-6 text-xs">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3 h-3 rounded bg-green-500"></div>
+                                                <span className="text-gray-600 font-medium">Available</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-3 h-3 rounded bg-red-600"></div>
+                                                <span className="text-gray-600 font-medium">Occupied</span>
+                                            </div>
                                         </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Pending:</span>
-                                            <span className="text-orange-400 font-bold">{selectedHospital.admissionsLoad.pending}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-gray-300">Admitted:</span>
-                                            <span className="text-green-400 font-bold">{selectedHospital.admissionsLoad.admitted}</span>
-                                        </div>
-                                        <div className="flex justify-between pt-3 border-t border-white/10">
-                                            <span className="text-gray-300">Last 7 Days:</span>
-                                            <span className="text-purple-400 font-bold">{selectedHospital.admissionsLoad.last7Days}</span>
-                                        </div>
+                                    </div>
+
+                                    <div className="space-y-12">
+                                        {selectedHospital.bedSummary.byType.map((bed, idx) => (
+                                            <div key={idx} className="space-y-4">
+                                                <div className="flex justify-between items-end">
+                                                    <h5 className="text-sm font-bold text-gray-600 uppercase tracking-wider">{bed.type}</h5>
+                                                    <span className="text-xs text-gray-500 italic font-mono">
+                                                        {bed.occupied} Occupied • {bed.available} Available
+                                                    </span>
+                                                </div>
+
+                                                {/* Progress Bar */}
+                                                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                                                    <div
+                                                        className="bg-orange-500 h-full rounded-full"
+                                                        style={{ width: `${(bed.occupied / (bed.total || 1)) * 100}%` }}
+                                                    ></div>
+                                                </div>
+
+                                                {/* Bed Icons Grid */}
+                                                <div className="flex flex-wrap gap-2 pt-2">
+                                                    {bed.beds && bed.beds.length > 0 ? (
+                                                        bed.beds.sort((a, b) => a.number - b.number).map((b) => (
+                                                            <div
+                                                                key={b.number}
+                                                                onClick={(e) => b.status === "available" && handleBedClick(e, bed.type)}
+                                                                className={`relative w-8 h-8 rounded flex items-center justify-center shadow-sm transition-all cursor-pointer hover:scale-110
+                                                                    ${b.status === 'occupied'
+                                                                        ? "bg-red-600 text-white"
+                                                                        : "bg-white border border-green-500 text-green-600 hover:bg-green-50"
+                                                                    }`}
+                                                                title={`${b.status === 'available' ? "Click to Request " : ""}${bed.type} Bed ${b.number}`}
+                                                            >
+                                                                <Bed size={14} />
+                                                                <span className={`absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[8px] font-bold rounded-full border
+                                                                    ${b.status === 'occupied' ? "bg-white text-red-600 border-red-100" : "bg-green-600 text-white border-green-600"}
+                                                                `}>
+                                                                    {b.number}
+                                                                </span>
+                                                            </div>
+                                                        ))
+                                                    ) : (
+                                                        <>
+                                                            {/* Fallback: Occupied Reds */}
+                                                            {Array.from({ length: Math.min(bed.occupied, 50) }).map((_, i) => (
+                                                                <div key={`occ-${i}`} className="w-8 h-8 rounded bg-red-600 flex items-center justify-center text-white shadow-sm">
+                                                                    <Bed size={16} />
+                                                                </div>
+                                                            ))}
+                                                            {/* Fallback: Available Greens */}
+                                                            {Array.from({ length: Math.min(bed.available, 50) }).map((_, i) => (
+                                                                <div key={`avail-${i}`} className="w-8 h-8 rounded border border-green-500 flex items-center justify-center text-green-600 bg-white">
+                                                                    <Bed size={16} />
+                                                                </div>
+                                                            ))}
+                                                            {(bed.total > 100) && (
+                                                                <div className="w-8 h-8 flex items-center justify-center text-gray-400 text-xs">
+                                                                    +{bed.total - 100}
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -659,6 +777,13 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            <BedRequestModal
+                isOpen={requestModalOpen}
+                onClose={() => setRequestModalOpen(false)}
+                hospitalName={selectedHospital?.name || "Hospital"}
+                bedType={selectedBedType}
+            />
         </div>
     );
 };

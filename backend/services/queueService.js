@@ -250,11 +250,53 @@ const updatePatientStatus = async (id, updates) => {
                 query.doctorName = { $regex: new RegExp(escapedName + '$', 'i') };
             }
 
-            const updatedSlot = await HospitalDoctorSlot.findOneAndUpdate(
+            let updatedSlot = await HospitalDoctorSlot.findOneAndUpdate(
                 query,
                 { currentPatientId: patient._id },
                 { new: true }
             );
+
+            // AUTO-CREATE SLOT IF MISSING
+            if (!updatedSlot) {
+                console.log(`⚠️ Slot not found for ${query.doctorName || patient.doctorId}. Creating new slot for today...`);
+
+                // We need more details to create a slot. Try to fetch doctor profile if possible.
+                let doctorProfile = null;
+                if (patient.doctorId) {
+                    doctorProfile = await Doctor.findById(patient.doctorId);
+                } else {
+                    // Try finding by name
+                    const cleanName = patient.doctorName.replace(/^Dr\.?\s+/i, '').trim();
+                    doctorProfile = await Doctor.findOne({
+                        hospitalId: patient.hospitalId,
+                        name: { $regex: new RegExp(cleanName, 'i') }
+                    });
+                }
+
+                if (doctorProfile) {
+                    const defaultSlots = [
+                        { time: '09:00 AM', status: 'available' }, { time: '09:30 AM', status: 'available' },
+                        { time: '10:00 AM', status: 'available' }, { time: '10:30 AM', status: 'available' },
+                        { time: '11:00 AM', status: 'available' }, { time: '11:30 AM', status: 'available' },
+                        { time: '02:00 PM', status: 'available' }, { time: '02:30 PM', status: 'available' },
+                        { time: '03:00 PM', status: 'available' }, { time: '03:30 PM', status: 'available' },
+                        { time: '04:00 PM', status: 'available' }
+                    ];
+
+                    updatedSlot = await HospitalDoctorSlot.create({
+                        hospitalId: patient.hospitalId,
+                        doctorId: doctorProfile._id,
+                        doctorName: doctorProfile.name,
+                        specialization: doctorProfile.specialization || 'General',
+                        department: doctorProfile.department || patient.department || 'General',
+                        date: today,
+                        isActive: true,
+                        currentPatientId: patient._id, // Set busy immediately
+                        slots: defaultSlots
+                    });
+                    console.log(`✅ Created and assigned new slot for ${doctorProfile.name}`);
+                }
+            }
 
             if (updatedSlot) {
                 console.log(`Doctor ${updatedSlot.doctorName} (ID matched: ${!!patient.doctorId}) is now BUSY with patient ${patient.patientName}`);
@@ -262,11 +304,12 @@ const updatePatientStatus = async (id, updates) => {
                 // CRITICAL FIX: If we matched by name, save the doctorId to the patient record
                 // This guarantees the "Complete" step will find the EXACT same slot via ID
                 if (!patient.doctorId && updatedSlot.doctorId) {
+                    console.log(`✅ Linking Patient ${patient.patientName} to DoctorID ${updatedSlot.doctorId}`);
+                    // We must use a separate update because 'patient' is already fetched
                     await HospitalOpdCheckIn.findByIdAndUpdate(patient._id, { doctorId: updatedSlot.doctorId });
-                    console.log(`✅ Linked Patient ${patient.patientName} to DoctorID ${updatedSlot.doctorId}`);
                 }
             } else {
-                console.warn(`Could not find doctor slot for ${patient.doctorName} (ID: ${patient.doctorId}) to set BUSY status.`);
+                console.warn(`Could not find or create doctor slot for ${patient.doctorName} (ID: ${patient.doctorId}) to set BUSY status.`);
             }
         }
         else if (updates.status === 'completed' || updates.status === 'no-show') {
@@ -285,15 +328,24 @@ const updatePatientStatus = async (id, updates) => {
                 query.doctorName = { $regex: new RegExp(escapedName + '$', 'i') };
             }
 
-            const updatedSlot = await HospitalDoctorSlot.findOneAndUpdate(
+            let updatedSlot = await HospitalDoctorSlot.findOneAndUpdate(
                 query,
                 { currentPatientId: null },
                 { new: true }
             );
 
+            // AUTO-CREATE SLOT IF MISSING (Even for completion, though rare)
+            if (!updatedSlot) {
+                // Logic similar to above, but setting currentPatientId to null is default, so just create empty available slot
+                // Not strictly necessary to create a slot just to free it, but keeps data consistent.
+                // Skipping specifically for 'freeing' to avoid complexity, but logging it.
+                console.warn(`Slot missing while trying to free doctor ${patient.doctorName}. This is minor as they are being freed anyway.`);
+            }
+
             if (updatedSlot) {
                 console.log(`Doctor ${updatedSlot.doctorName} is now FREE`);
             } else {
+                // If we really can't find the slot, it's fine, the doctor is "effectively" free if no slot says busy.
                 console.warn(`Could not find doctor slot for ${patient.doctorName} to set FREE status.`);
             }
         }
@@ -329,23 +381,24 @@ const updatePatientStatus = async (id, updates) => {
                 return null;
             }
 
-            // 2. Filter for FREE doctors first
+            // 2. Filter for FREE doctors first (currentPatientId is null)
             const freeSlots = candidateSlots.filter(s => !s.currentPatientId);
 
             if (freeSlots.length > 0) {
                 // Pick the first free doctor (Simple "Next Available")
-                // Enhancement: select random or round-robin if multiple are free?
-                // For now, simple return is fine.
+                // Enhancement: could be round-robin or random
+                const selected = freeSlots[0];
+                console.log(`✅ Smart Assign: Found FREE doctor ${selected.doctorName} for department ${department}`);
                 return {
-                    _id: freeSlots[0].doctorId,
-                    name: freeSlots[0].doctorName
+                    _id: selected.doctorId,
+                    name: selected.doctorName
                 };
             }
 
-            // 3. If all busy, pick the one with fewest patients in queue? 
-            // For simple MVP: Just pick the first one (Waitlist mode)
-            // Or pick random to distribute load
+            // 3. If all busy, pick the one with fewest patients in queue (Load Balancing)
+            // For now, simpler fallback: Random
             const randomSlot = candidateSlots[Math.floor(Math.random() * candidateSlots.length)];
+            console.log(`⚠️ Smart Assign: All doctors busy. Assigning to ${randomSlot.doctorName} (Load Balancing)`);
             return {
                 _id: randomSlot.doctorId,
                 name: randomSlot.doctorName

@@ -13,6 +13,10 @@ export interface CentralizedHospitalData {
             total: number;
             occupied: number;
             available: number;
+            beds?: Array<{
+                number: number;
+                status: string;
+            }>;
         }>;
     };
     opdLoad: {
