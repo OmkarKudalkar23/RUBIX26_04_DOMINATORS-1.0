@@ -1,8 +1,12 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { Chatbot } from "./Chatbot";
 import { InventoryTab } from "./InventoryTab";
+// Offline-First Architecture Components
+// "Offline mode ensures continuity of care during network outages while preserving backend authority."
+import { OfflineBadge, SyncStatusBanner } from './OfflineIndicators';
+// Keep non-offline APIs from regular API
 import {
   getHospitalBeds,
   updateHospitalBed,
@@ -19,9 +23,6 @@ import {
   changeHospitalPassword,
   getEarlyWarning,
   getHospitalLoad,
-  checkInOpdPatient,
-  getOpdQueue,
-  updateOpdQueueEntry,
   getHospitalDoctors,
   createHospitalBed,
   createHospitalDoctor,
@@ -37,6 +38,13 @@ import {
   type OpdCheckIn,
   type HospitalDoctor,
 } from "../services/api";
+
+// Offline-aware API functions
+import {
+  opdCheckIn,
+  fetchOpdQueue,
+  updateOpdStatus,
+} from "../services/offlineHospitalApi";
 import {
   getCentralizedHospitalCapacity,
   type CentralizedHospitalData,
@@ -378,7 +386,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           getHospitalSurgeAlerts(),
           getHospitalEnvironment(),
           getHospitalAppointments(),
-          getOpdQueue(),
+          fetchOpdQueue().then(r => r.data), // Use offline-aware API and extract data
           getHospitalDoctors(),
           getEarlyWarning('Mumbai').catch(() => null), // Default to Mumbai
           getHospitalLoad('Mumbai').catch(() => null) // Default to Mumbai
@@ -489,15 +497,30 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     if (!user?.hospitalId) return;
 
     const intervalId = setInterval(() => {
+      // Skip polling if offline - data comes from cache
+      if (!navigator.onLine) {
+        console.log('[Polling] Skipped - offline mode');
+        return;
+      }
+
       // Fetch Doctor Slots (for Status dots)
       getHospitalDoctorSlots()
         .then((data) => setDoctorSlots(data))
-        .catch((err) => console.error("Polling slots error:", err));
+        .catch((err) => {
+          // Only log if actually online (network failure vs offline)
+          if (navigator.onLine) {
+            console.error("Polling slots error:", err);
+          }
+        });
 
-      // Fetch Queue (for lists)
-      getOpdQueue()
-        .then((data) => setOpdQueue(data))
-        .catch((err) => console.error("Polling queue error:", err));
+      // Fetch Queue (for lists) - use offline-aware API
+      fetchOpdQueue()
+        .then((response) => setOpdQueue(response.data as any))
+        .catch((err) => {
+          if (navigator.onLine) {
+            console.error("Polling queue error:", err);
+          }
+        });
 
     }, 5000); // Poll every 5 seconds
 
@@ -621,9 +644,25 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   // OPD Queue handlers
   const handleOpdCheckIn = async (e: React.FormEvent) => {
     e.preventDefault();
+
     try {
-      const newEntry = await checkInOpdPatient(opdForm);
-      setOpdQueue((prev) => [...prev, newEntry]);
+      // Use offline-aware API - it handles online/offline automatically
+      const response = await opdCheckIn({
+        patientName: opdForm.patientName,
+        department: opdForm.department,
+        doctorName: opdForm.doctorName,
+        priority: opdForm.priority as any,
+        visitType: opdForm.visitType as any,
+        estimatedArrivalTime: opdForm.estimatedArrivalTime,
+        consultationComplexity: opdForm.consultationComplexity as any,
+        isEmergency: opdForm.isEmergency,
+        arrivalStatus: opdForm.arrivalStatus as any,
+      });
+
+      // Add the new entry (could be provisional if offline)
+      setOpdQueue((prev) => [...prev, response.data as any]);
+
+      // Clear the form
       setOpdForm({
         patientName: '',
         department: '',
@@ -635,7 +674,15 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         isEmergency: false,
         arrivalStatus: 'waiting'
       });
-      toast.success(`Patient ${opdForm.patientName} checked in successfully`);
+
+      // Show appropriate success message
+      if (response.provisional) {
+        toast.success(`Patient ${opdForm.patientName} checked in (offline - will sync when online)`, {
+          icon: '🔄',
+        });
+      } else {
+        toast.success(`Patient ${opdForm.patientName} checked in successfully`);
+      }
     } catch (error: any) {
       console.error('Error checking in patient:', error);
       toast.error(error.message || 'Failed to check in patient');
@@ -644,15 +691,25 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
   const handleUpdateOpdStatus = async (id: string, status: string) => {
     try {
-      const updated = await updateOpdQueueEntry(id, { status: status as any });
-      setOpdQueue((prev) => prev.map((entry) => (entry.id === id ? updated : entry)));
+      // Use offline-aware API - handles online/offline automatically
+      const response = await updateOpdStatus(id, status as any);
 
-      // Refresh Doctor Slots immediately to reflect Busy/Free status change in Right Panel
+      // Update local state (provisional if offline)
+      setOpdQueue((prev) => prev.map((entry) =>
+        entry.id === id ? { ...entry, status: status as any } : entry
+      ));
+
+      // Refresh Doctor Slots immediately to reflect Busy/Free status change
       getHospitalDoctorSlots()
         .then((data) => setDoctorSlots(data))
         .catch(console.error);
 
-      toast.success(`Status updated to ${status}`);
+      // Show appropriate message
+      if (response.provisional) {
+        toast.success(`Status updated (offline - will sync when online)`, { icon: '🔄' });
+      } else {
+        toast.success(`Status updated to ${status}`);
+      }
     } catch (error: any) {
       console.error('Error updating status:', error);
       toast.error(error.message || 'Failed to update status');
@@ -661,9 +718,20 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
   const handleUpdateOpdPriority = async (id: string, priority: string) => {
     try {
-      const updated = await updateOpdQueueEntry(id, { priority: priority as any });
-      setOpdQueue((prev) => prev.map((entry) => (entry.id === id ? updated : entry)));
-      toast.success(`Priority updated to ${priority}`);
+      // Use offline-aware API - handles online/offline automatically
+      const response = await updateOpdStatus(id, priority as any);
+
+      // Update local state
+      setOpdQueue((prev) => prev.map((entry) =>
+        entry.id === id ? { ...entry, priority: priority as any } : entry
+      ));
+
+      // Show appropriate message
+      if (response.provisional) {
+        toast.success(`Priority updated (offline - will sync when online)`, { icon: '🔄' });
+      } else {
+        toast.success(`Priority updated to ${priority}`);
+      }
     } catch (error: any) {
       console.error('Error updating priority:', error);
       toast.error(error.message || 'Failed to update priority');
@@ -674,14 +742,21 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   useEffect(() => {
     if (activeTab !== 'opd') return;
 
-
-
     const interval = setInterval(async () => {
+      // Skip refresh if offline - data comes from cache
+      if (!navigator.onLine) {
+        console.log('[OPD Refresh] Skipped - offline mode');
+        return;
+      }
+
       try {
-        const freshQueue = await getOpdQueue();
-        setOpdQueue(freshQueue);
+        const response = await fetchOpdQueue();
+        setOpdQueue(response.data as any);
       } catch (error) {
-        console.error('Error refreshing OPD queue:', error);
+        // Only log if actually online
+        if (navigator.onLine) {
+          console.error('Error refreshing OPD queue:', error);
+        }
       }
     }, 30000); // Refresh every 30 seconds
 
@@ -693,13 +768,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     if (activeTab !== 'city') return;
 
     const fetchCentralizedData = async () => {
+      // City Dashboard requires internet - skip if offline
+      if (!navigator.onLine) {
+        console.log('[City Dashboard] Skipped - offline mode (requires internet)');
+        return;
+      }
+
       try {
         setCentralizedLoading(true);
         const data = await getCentralizedHospitalCapacity();
         setCentralizedData(data);
       } catch (error) {
-        console.error('Error fetching centralized data:', error);
-        toast.error('Failed to load city dashboard data');
+        // Only show error if actually online
+        if (navigator.onLine) {
+          console.error('Error fetching centralized data:', error);
+          toast.error('Failed to load city dashboard data');
+        }
       } finally {
         setCentralizedLoading(false);
       }
@@ -921,6 +1005,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
             {/* Right side icons */}
             <div className="flex items-center gap-2 md:gap-3">
+              {/* Offline Status Badge - Shows when offline, syncing, or has pending actions */}
+              <OfflineBadge className="hidden md:flex" showPendingCount={true} />
               <button
                 onClick={() => setShowNotificationPopup(true)}
                 className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -943,6 +1029,11 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           </div>
         </div>
       </header>
+
+      {/* Offline Status Banner - Shows prominently when offline or has conflicts */}
+      <div className="fixed top-[73px] left-0 right-0 z-40">
+        <SyncStatusBanner />
+      </div>
 
       {/* Mobile Menu Overlay */}
       <AnimatePresence>

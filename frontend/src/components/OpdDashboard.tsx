@@ -24,12 +24,21 @@ export const OpdDashboard: React.FC<OpdDashboardProps> = ({ opdQueue, doctorSlot
 
     useEffect(() => {
         const fetchData = async () => {
+            // Skip API calls when offline - analytics requires backend connectivity
+            if (!navigator.onLine) {
+                console.log('[OpdDashboard] Skipped analytics fetch - offline mode');
+                return;
+            }
+
             try {
                 // Only fetch analytics, slots come from parent
                 const analyticsData = await getHospitalAnalytics();
                 setAnalytics(analyticsData);
             } catch (error) {
-                console.error('Failed to fetch analytics:', error);
+                // Only log errors if we're actually online
+                if (navigator.onLine) {
+                    console.error('Failed to fetch analytics:', error);
+                }
             }
         };
         fetchData();
