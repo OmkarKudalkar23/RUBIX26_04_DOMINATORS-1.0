@@ -53,6 +53,7 @@ require('./models/Prediction');
 require('./models/Order');
 require('./models/Delivery');
 require('./models/Expense');
+require('./models/BedRequest');
 
 // Sample route
 app.get('/', (req, res) => {

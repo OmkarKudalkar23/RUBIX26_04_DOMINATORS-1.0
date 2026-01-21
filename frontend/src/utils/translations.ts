@@ -57,7 +57,7 @@ export const translations = {
         total: "Total",
 
         // Bed Management Tab
-        visualBedTracker: "Visual bed occupancy tracker",
+        visualBedTracker: "Bed occupancy tracker",
         addBedType: "Add Bed Type",
         occupyBed: "Occupy Bed",
         releaseBed: "Release Bed",
@@ -124,8 +124,6 @@ export const translations = {
         featureComingSoon: "Feature coming soon",
 
         // City Dashboard
-        cityGeneralHospital: "City General Hospital",
-        realTimeCapacityMonitoring: "Real-time capacity monitoring across all hospitals",
         loadingDashboard: "Loading Dashboard...",
         totalBeds: "Total Beds",
         opdToday: "OPD Today",

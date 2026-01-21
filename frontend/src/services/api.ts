@@ -1346,3 +1346,100 @@ export const updateOpdQueueEntry = async (
     throw error;
   }
 };
+
+// ==================== BED REQUESTS (Inter-Hospital Notifications) ====================
+
+export interface BedRequestData {
+  id?: string;
+  _id?: string;
+  fromHospitalId: string;
+  fromHospitalName: string;
+  toHospitalId: string;
+  toHospitalName: string;
+  patientName: string;
+  age?: number;
+  gender?: string;
+  contact?: string;
+  bloodGroup?: string;
+  condition?: string;
+  bedType: string;
+  status: 'pending' | 'approved' | 'rejected';
+  isRead: boolean;
+  responseNotes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SendBedRequestPayload {
+  toHospitalId: string;
+  patientName: string;
+  age?: string;
+  gender?: string;
+  contact?: string;
+  bloodGroup?: string;
+  condition?: string;
+  bedType?: string;
+}
+
+// Send a bed request to another hospital
+export const sendBedRequest = async (data: SendBedRequestPayload): Promise<BedRequestData> => {
+  try {
+    const response = await hospitalApiRequest('/bed-requests/send', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+    return {
+      ...response,
+      id: response._id
+    };
+  } catch (error) {
+    console.error('Error sending bed request:', error);
+    throw error;
+  }
+};
+
+// Get incoming bed requests for the current hospital
+export const getBedRequests = async (status?: string): Promise<BedRequestData[]> => {
+  try {
+    const endpoint = status ? `/bed-requests?status=${status}` : '/bed-requests';
+    const response = await hospitalApiRequest(endpoint);
+    return response.map((item: any) => ({
+      ...item,
+      id: item._id
+    }));
+  } catch (error) {
+    console.error('Error fetching bed requests:', error);
+    throw error;
+  }
+};
+
+// Get count of unread/pending bed requests
+export const getBedRequestCount = async (): Promise<{ unreadCount: number; pendingCount: number }> => {
+  try {
+    const response = await hospitalApiRequest('/bed-requests/count');
+    return response;
+  } catch (error) {
+    console.error('Error fetching bed request count:', error);
+    return { unreadCount: 0, pendingCount: 0 };
+  }
+};
+
+// Update a bed request (approve/reject/mark as read)
+export const updateBedRequest = async (
+  id: string,
+  updates: { status?: 'pending' | 'approved' | 'rejected'; isRead?: boolean; responseNotes?: string }
+): Promise<BedRequestData> => {
+  try {
+    const response = await hospitalApiRequest(`/bed-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    });
+    return {
+      ...response,
+      id: response._id
+    };
+  } catch (error) {
+    console.error('Error updating bed request:', error);
+    throw error;
+  }
+};
