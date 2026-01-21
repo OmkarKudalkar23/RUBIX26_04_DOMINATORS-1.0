@@ -9,7 +9,7 @@
                     >
                       City-Wide Hospital Dashboard
                     </h2>
-                    <p className="text-sm text-gray-500 mt-1">
+                    <p className="text-sm text-gray-500 mt-5">
                       Real-time capacity monitoring across all hospitals
                     </p>
                   </div>

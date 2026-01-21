@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, User, Phone, Activity, Droplet } from 'lucide-react';
 import { toast } from 'sonner';
+import { sendBedRequest } from '../services/api';
 
 interface BedRequestModalProps {
     isOpen: boolean;
     onClose: () => void;
     hospitalName: string;
+    hospitalId?: string;  // New prop: the target hospital's ID
     bedType?: string;
 }
 
@@ -14,6 +16,7 @@ export const BedRequestModal: React.FC<BedRequestModalProps> = ({
     isOpen,
     onClose,
     hospitalName,
+    hospitalId,
     bedType = "General"
 }) => {
     const [formData, setFormData] = useState({
@@ -27,23 +30,33 @@ export const BedRequestModal: React.FC<BedRequestModalProps> = ({
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!hospitalId) {
+            toast.error('Hospital ID not available. Cannot send request.');
+            return;
+        }
+
         setIsSubmitting(true);
 
-        // Simulate API delay
-        setTimeout(() => {
-            console.log("Bed Block Request Sent:", {
-                hospital: hospitalName,
-                bedType,
-                ...formData
+        try {
+            // Call the real API
+            await sendBedRequest({
+                toHospitalId: hospitalId,
+                patientName: formData.patientName,
+                age: formData.age,
+                gender: formData.gender,
+                contact: formData.contact,
+                bloodGroup: formData.bloodGroup,
+                condition: formData.condition,
+                bedType: bedType
             });
 
             toast.success(`Request sent to ${hospitalName}`, {
-                description: `Bed blocking request for ${formData.patientName} (${bedType} Bed) initiated successfully.`
+                description: `Bed blocking request for ${formData.patientName} (${bedType} Bed) submitted successfully. The hospital will be notified.`
             });
 
-            setIsSubmitting(false);
             onClose();
             setFormData({
                 patientName: '',
@@ -53,7 +66,14 @@ export const BedRequestModal: React.FC<BedRequestModalProps> = ({
                 bloodGroup: '',
                 condition: ''
             });
-        }, 1500);
+        } catch (error: any) {
+            console.error('Error sending bed request:', error);
+            toast.error('Failed to send request', {
+                description: error.message || 'Please try again later.'
+            });
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;

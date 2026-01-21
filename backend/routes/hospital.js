@@ -17,6 +17,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { fetchRealTimeEnvironmentData } = require('../services/aqiService');
 const axios = require('axios');
 const { allocateBed } = require('../services/admissionRules');
+const BedRequest = require('../models/BedRequest');
 
 const router = express.Router();
 
@@ -1694,5 +1695,141 @@ router.post('/surge-alerts', async (req, res) => {
   }
 });
 
+// ==================== BED REQUESTS (Inter-Hospital Notifications) ====================
+
+// POST /api/hospital/bed-requests/send - Send a bed request to another hospital
+router.post('/bed-requests/send', async (req, res) => {
+  try {
+    const { toHospitalId, patientName, age, gender, contact, bloodGroup, condition, bedType } = req.body;
+
+    // Get the sending hospital (current logged-in hospital)
+    const fromHospital = await getHospitalByUserId(req.user.id);
+    if (!fromHospital) {
+      return res.status(404).json({ message: 'Your hospital profile not found' });
+    }
+
+    // Get the receiving hospital
+    const toHospital = await Hospital.findById(toHospitalId);
+    if (!toHospital) {
+      return res.status(404).json({ message: 'Target hospital not found' });
+    }
+
+    // Create the bed request
+    const bedRequest = new BedRequest({
+      fromHospitalId: fromHospital._id,
+      fromHospitalName: fromHospital.name,
+      toHospitalId: toHospital._id,
+      toHospitalName: toHospital.name,
+      patientName,
+      age: age ? parseInt(age) : undefined,
+      gender,
+      contact,
+      bloodGroup,
+      condition,
+      bedType: bedType || 'General',
+      status: 'pending',
+      isRead: false
+    });
+
+    await bedRequest.save();
+
+    console.log(`🛏️ Bed request sent from ${fromHospital.name} to ${toHospital.name} for patient ${patientName}`);
+
+    res.status(201).json(bedRequest);
+  } catch (error) {
+    console.error('Error sending bed request:', error);
+    res.status(500).json({ message: 'Error sending bed request', error: error.message });
+  }
+});
+
+// GET /api/hospital/bed-requests - Get incoming bed requests for the current hospital
+router.get('/bed-requests', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    const { status, limit = 50 } = req.query;
+
+    const query = { toHospitalId: hospital._id };
+    if (status) {
+      query.status = status;
+    }
+
+    const requests = await BedRequest.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+
+    res.json(requests);
+  } catch (error) {
+    console.error('Error fetching bed requests:', error);
+    res.status(500).json({ message: 'Error fetching bed requests', error: error.message });
+  }
+});
+
+// GET /api/hospital/bed-requests/count - Get count of unread/pending requests
+router.get('/bed-requests/count', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    const unreadCount = await BedRequest.countDocuments({
+      toHospitalId: hospital._id,
+      isRead: false
+    });
+
+    const pendingCount = await BedRequest.countDocuments({
+      toHospitalId: hospital._id,
+      status: 'pending'
+    });
+
+    res.json({ unreadCount, pendingCount });
+  } catch (error) {
+    console.error('Error counting bed requests:', error);
+    res.status(500).json({ message: 'Error counting bed requests', error: error.message });
+  }
+});
+
+// PATCH /api/hospital/bed-requests/:id - Update a bed request (approve/reject/mark as read)
+router.patch('/bed-requests/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, isRead, responseNotes } = req.body;
+
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) {
+      return res.status(404).json({ message: 'Hospital profile not found' });
+    }
+
+    const bedRequest = await BedRequest.findById(id);
+    if (!bedRequest) {
+      return res.status(404).json({ message: 'Bed request not found' });
+    }
+
+    // Ensure the request is for this hospital
+    if (bedRequest.toHospitalId.toString() !== hospital._id.toString()) {
+      return res.status(403).json({ message: 'You can only update bed requests sent to your hospital' });
+    }
+
+    // Update fields
+    if (status) bedRequest.status = status;
+    if (isRead !== undefined) bedRequest.isRead = isRead;
+    if (responseNotes) bedRequest.responseNotes = responseNotes;
+
+    await bedRequest.save();
+
+    console.log(`🛏️ Bed request ${id} updated: status=${bedRequest.status}, isRead=${bedRequest.isRead}`);
+
+    res.json(bedRequest);
+  } catch (error) {
+    console.error('Error updating bed request:', error);
+    res.status(500).json({ message: 'Error updating bed request', error: error.message });
+  }
+});
+
 module.exports = router;
+
 

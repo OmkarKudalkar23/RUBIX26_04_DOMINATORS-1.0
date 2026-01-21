@@ -29,6 +29,9 @@ import {
   createHospitalStaff,
   createHospitalAppointment,
   createHospitalSurgeAlert,
+  getBedRequests,
+  getBedRequestCount,
+  updateBedRequest,
   type BedData,
   type DoctorSlot,
   type StaffMember,
@@ -37,6 +40,7 @@ import {
   type HospitalAppointment,
   type OpdCheckIn,
   type HospitalDoctor,
+  type BedRequestData,
 } from "../services/api";
 
 // Offline-aware API functions
@@ -92,7 +96,6 @@ import {
   DoorOpen,
   Briefcase,
   ClipboardList,
-  FileText,
   Download,
   Upload,
   BarChart3 as BarChartIcon,
@@ -105,6 +108,7 @@ import {
   Lock,
   Save,
   Trash2,
+  Mail,
 } from "lucide-react";
 import {
   PieChart,
@@ -236,6 +240,11 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   // Centralized Dashboard State
   const [centralizedData, setCentralizedData] = useState<CentralizedCapacityResponse | null>(null);
   const [centralizedLoading, setCentralizedLoading] = useState(false);
+
+  // Bed Request Notifications State
+  const [bedRequests, setBedRequests] = useState<BedRequestData[]>([]);
+  const [bedRequestCount, setBedRequestCount] = useState({ unreadCount: 0, pendingCount: 0 });
+  const [showBedRequestsPopup, setShowBedRequestsPopup] = useState(false);
 
   // OPD Check-in form state
   const [opdForm, setOpdForm] = useState({
@@ -523,12 +532,36 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           }
         });
 
+      // Fetch Bed Requests (for notifications)
+      getBedRequestCount()
+        .then((data) => setBedRequestCount(data))
+        .catch((err) => console.error("Polling bed request count error:", err));
+
     }, 5000); // Poll every 5 seconds
+
+    // Initial fetch of bed requests
+    getBedRequests()
+      .then((data) => setBedRequests(data))
+      .catch((err) => console.error("Initial bed requests fetch error:", err));
+    getBedRequestCount()
+      .then((data) => setBedRequestCount(data))
+      .catch((err) => console.error("Initial bed request count error:", err));
 
     return () => clearInterval(intervalId);
   }, [user?.hospitalId]);
 
+  // Fetch bed requests when Beds tab is opened
+  useEffect(() => {
+
+    if (activeTab === 'beds') {
+      getBedRequests()
+        .then((data) => setBedRequests(data))
+        .catch((err) => console.error("Error fetching bed requests:", err));
+    }
+  }, [activeTab]);
+
   const highSeverityAlerts = surgeAlerts.filter((a) => a.severity === "high").length;
+  const totalNotifications = highSeverityAlerts + bedRequestCount.pendingCount;
 
   // Handle bed operations - Now using API
   const handleUpdateBedCount = async (bedId: string, change: number) => {
@@ -1009,14 +1042,14 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
               {/* Offline Status Badge - Shows when offline, syncing, or has pending actions */}
               <OfflineBadge className="hidden md:flex" showPendingCount={true} />
               <button
-                onClick={() => setShowNotificationPopup(true)}
+                onClick={() => bedRequestCount.pendingCount > 0 ? setShowBedRequestsPopup(true) : setShowNotificationPopup(true)}
                 className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="Notifications"
               >
                 <Bell className="w-5 h-5 md:w-6 md:h-6" />
-                {highSeverityAlerts > 0 && (
+                {totalNotifications > 0 && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 text-xs rounded-full flex items-center justify-center bg-red-500 text-white" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                    {highSeverityAlerts}
+                    {totalNotifications}
                   </span>
                 )}
               </button>
@@ -1081,7 +1114,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     { id: "inventory", icon: Package, label: t.inventory },
                     { id: "city", icon: Globe, label: t.cityDashboard },
                     { id: "settings", icon: Settings, label: t.settings },
-                  ].map((item) => (
+                  ].map((item: any) => (
                     <button
                       key={item.id}
                       onClick={() => {
@@ -1094,9 +1127,14 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                         }`}
                     >
                       <item.icon className="w-5 h-5" />
-                      <span className="text-sm uppercase tracking-wide">
+                      <span className="text-sm uppercase tracking-wide flex-1 text-left">
                         {item.label}
                       </span>
+                      {item.badge > 0 && (
+                        <span className={`w-5 h-5 text-xs rounded-full flex items-center justify-center ${activeTab === item.id ? 'bg-white text-black' : 'bg-red-500 text-white'}`}>
+                          {item.badge}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </nav>
@@ -1120,7 +1158,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             { id: "inventory", icon: Package, label: t.inventory },
             { id: "city", icon: Globe, label: t.cityDashboard },
             { id: "settings", icon: Settings, label: t.settings },
-          ].map((item) => (
+          ].map((item: any) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
@@ -1130,7 +1168,12 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 }`}
             >
               <item.icon className="w-5 h-5" />
-              <span className="uppercase tracking-wide">{item.label}</span>
+              <span className="uppercase tracking-wide flex-1 text-left">{item.label}</span>
+              {item.badge > 0 && (
+                <span className={`w-5 h-5 text-xs rounded-full flex items-center justify-center ${activeTab === item.id ? 'bg-white text-black' : 'bg-red-500 text-white'}`}>
+                  {item.badge}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -1613,8 +1656,22 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
+                    {/* Incoming Bed Requests Button - Always Visible */}
+                    <button
+                      onClick={() => setShowBedRequestsPopup(true)}
+                      className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-colors ${bedRequestCount.pendingCount > 0
+                        ? "bg-purple-100 border-purple-300 text-purple-800 hover:bg-purple-200"
+                        : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                    >
+                      <Mail className="w-4 h-4" />
+                      <span className="text-sm font-semibold" style={{ fontFamily: "'Doto', sans-serif" }}>
+                        {bedRequestCount.pendingCount}
+                      </span>
+                    </button>
+
                     {/* Legend */}
-                    <div className="hidden md:flex items-center gap-4 bg-white px-3 py-1.5 rounded-lg border border-gray-200 mr-2 shadow-sm">
+                    <div className="hidden md:flex items-center gap-4 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
                         <span className="text-xs font-semibold text-gray-700">{t.available}</span>
@@ -2173,14 +2230,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     >
                       {t.staffManagement}
                     </h2>
-                    <button
-                      onClick={() => setShowAddStaffModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      {t.addStaff}
-                    </button>
+
                   </div>
 
                   {/* Filters with Add Staff Button */}
@@ -2212,14 +2262,14 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           <option value="Laboratory">Laboratory</option>
                         </select>
                       </div>
-                      {/* Add Staff Button - Moved here for visibility */}
+
                       <button
                         onClick={() => setShowAddStaffModal(true)}
                         className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide whitespace-nowrap"
                         style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                       >
                         <UserPlus className="w-4 h-4" />
-                        Add Staff
+                        {t.addStaff}
                       </button>
                     </div>
                   </div>
@@ -3822,7 +3872,138 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         )}
       </AnimatePresence>
 
-      {/* Toast Notifications - Top Right */}
+      {/* Bed Requests Popup Modal */}
+      <AnimatePresence>
+        {showBedRequestsPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setShowBedRequestsPopup(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl max-h-[80vh] overflow-hidden flex flex-col"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-purple-100 rounded-2xl">
+                    <BedDouble className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
+                      Bed Requests
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      You have {bedRequestCount.pendingCount} pending request{bedRequestCount.pendingCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowBedRequestsPopup(false)}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+                {bedRequests.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No bed requests at this time
+                  </div>
+                ) : (
+                  bedRequests.filter(req => req.status === 'pending').map((request) => (
+                    <div
+                      key={request.id || request._id}
+                      className="p-4 rounded-2xl border bg-purple-50 border-purple-200"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-1 text-purple-500">
+                          <Hospital className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-gray-800 mb-1">
+                            {request.fromHospitalName}
+                          </h4>
+                          <p className="text-sm text-gray-600 mb-2">
+                            Requesting <strong>{request.bedType}</strong> bed for patient <strong>{request.patientName}</strong>
+                            {request.age && `, age ${request.age}`}
+                          </p>
+                          {request.condition && (
+                            <p className="text-xs text-gray-500 mb-2">
+                              Condition: {request.condition}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                            <Clock className="w-3 h-3" />
+                            {new Date(request.createdAt).toLocaleString()}
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await updateBedRequest(request.id || request._id!, { status: 'approved', isRead: true });
+                                  toast.success('Request approved');
+                                  // Refresh the list
+                                  const updated = await getBedRequests();
+                                  setBedRequests(updated);
+                                  const count = await getBedRequestCount();
+                                  setBedRequestCount(count);
+                                } catch (error) {
+                                  toast.error('Failed to approve request');
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors flex items-center gap-1"
+                            >
+                              <CheckCircle className="w-3 h-3" />
+                              Approve
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await updateBedRequest(request.id || request._id!, { status: 'rejected', isRead: true });
+                                  toast.success('Request rejected');
+                                  // Refresh the list
+                                  const updated = await getBedRequests();
+                                  setBedRequests(updated);
+                                  const count = await getBedRequestCount();
+                                  setBedRequestCount(count);
+                                } catch (error) {
+                                  toast.error('Failed to reject request');
+                                }
+                              }}
+                              className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-colors flex items-center gap-1"
+                            >
+                              <XCircle className="w-3 h-3" />
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-4">
+                <button
+                  onClick={() => setShowBedRequestsPopup(false)}
+                  className="w-full bg-gray-100 hover:bg-gray-200 py-3 rounded-xl transition-colors uppercase tracking-wide"
+                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="fixed top-20 right-4 z-50 space-y-3 max-w-sm">
         <AnimatePresence>
           {toastNotifications.map((notif) => {
