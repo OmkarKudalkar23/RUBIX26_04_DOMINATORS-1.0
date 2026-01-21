@@ -266,9 +266,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                     {/* Hospital Occupancy Rates */}
                     <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
                         <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">Hospital Occupancy Rates</h3>
-                        <div className="h-[300px] w-full">
+                        <div style={{ width: '100%', height: 300, minHeight: 300 }}>
                             {occupancyData && occupancyData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height={300}>
                                     <BarChart data={occupancyData} barSize={40}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                         <XAxis
@@ -317,9 +317,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                     {/* OPD Patient Load */}
                     <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
                         <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">OPD Patient Load</h3>
-                        <div className="h-[300px] w-full">
+                        <div style={{ width: '100%', height: 300, minHeight: 300 }}>
                             {opdData && opdData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                                <ResponsiveContainer width="100%" height={300}>
                                     <LineChart data={opdData}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                         <XAxis
