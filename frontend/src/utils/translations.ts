@@ -9,6 +9,7 @@ export const translations = {
         surgeAlerts: "Surge Alerts",
         appointments: "Appointments",
         inventory: "Inventory",
+        cityDashboard: "City Dashboard",
         settings: "Settings",
 
         // Dashboard Tab
@@ -121,6 +122,43 @@ export const translations = {
 
         // Modals
         featureComingSoon: "Feature coming soon",
+
+        // City Dashboard
+        cityGeneralHospital: "City General Hospital",
+        realTimeCapacityMonitoring: "Real-time capacity monitoring across all hospitals",
+        loadingDashboard: "Loading Dashboard...",
+        totalBeds: "Total Beds",
+        opdToday: "OPD Today",
+        admissionsToday: "Admissions Today",
+        activeHospitals: "Active Hospitals",
+        occupancy: "Occupancy",
+        pending: "Pending",
+        last7Days: "Last 7 days",
+        hospitalOccupancyRates: "Hospital Occupancy Rates",
+        opdPatientLoad: "OPD Patient Load",
+        noOccupancyData: "No occupancy data available",
+        noOpdData: "No OPD data available",
+        hospitalDetails: "Hospital Details",
+        searchHospitals: "Search hospitals...",
+        allStatus: "All Status",
+        highLoad: "High Load",
+        medium: "Medium",
+        lowLoad: "Low Load",
+        totalBedsLabel: "Total Beds",
+        occupiedLabel: "Occupied",
+        availableLabel: "Available",
+        opdTodayLabel: "OPD Today",
+        visualBedOccupancyTracker: "Visual Bed Occupancy Tracker",
+        clickToRequest: "Click to Request",
+        opdStatus: "OPD Status",
+        completedLabel: "Completed",
+        scheduledLabel: "Scheduled",
+        cancelledLabel: "Cancelled",
+        admissions: "Admissions",
+        today: "Today",
+        admitted: "Admitted",
+        lat: "Lat",
+        lng: "Lng",
     },
     Hindi: {
         // Sidebar
@@ -132,6 +170,7 @@ export const translations = {
         surgeAlerts: "चेतावनी",
         appointments: "नियुक्तियाँ",
         inventory: "इन्वेंटरी",
+        cityDashboard: "सिटी डैशबोर्ड",
         settings: "सेटिंग्स",
 
         // Dashboard Tab
@@ -244,5 +283,42 @@ export const translations = {
 
         // Modals
         featureComingSoon: "सुविधा जल्द आ रही है",
+
+        // City Dashboard
+        cityGeneralHospital: "सिटी जनरल अस्पताल",
+        realTimeCapacityMonitoring: "सभी अस्पतालों में रीयल-टाइम क्षमता निगरानी",
+        loadingDashboard: "डैशबोर्ड लोड हो रहा है...",
+        totalBeds: "कुल बिस्तर",
+        opdToday: "आज ओपीडी",
+        admissionsToday: "आज प्रवेश",
+        activeHospitals: "सक्रिय अस्पताल",
+        occupancy: "रिक्ति",
+        pending: "लंबित",
+        last7Days: "पिछले 7 दिन",
+        hospitalOccupancyRates: "अस्पताल रिक्ति दर",
+        opdPatientLoad: "ओपीडी मरीज भार",
+        noOccupancyData: "कोई रिक्ति डेटा उपलब्ध नहीं",
+        noOpdData: "कोई ओपीडी डेटा उपलब्ध नहीं",
+        hospitalDetails: "अस्पताल विवरण",
+        searchHospitals: "अस्पताल खोजें...",
+        allStatus: "सभी स्थिति",
+        highLoad: "उच्च भार",
+        medium: "मध्यम",
+        lowLoad: "कम भार",
+        totalBedsLabel: "कुल बिस्तर",
+        occupiedLabel: "भरे हुए",
+        availableLabel: "उपलब्ध",
+        opdTodayLabel: "आज ओपीडी",
+        visualBedOccupancyTracker: "विजुअल बिस्तर रिक्ति ट्रैकर",
+        clickToRequest: "अनुरोध करने के लिए क्लिक करें",
+        opdStatus: "ओपीडी स्थिति",
+        completedLabel: "पूर्ण",
+        scheduledLabel: "निर्धारित",
+        cancelledLabel: "रद्द",
+        admissions: "प्रवेश",
+        today: "आज",
+        admitted: "भर्ती",
+        lat: "अक्षांश",
+        lng: "देशांतर",
     }
 };

@@ -33,14 +33,20 @@ import {
     LineChart,
     Line,
 } from "recharts";
+import { translations } from "../utils/translations";
 
 interface CentralizedDashboardProps {
     onLogout: () => void;
+    language?: string;
+    isEmbedded?: boolean;
 }
 
 export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
     onLogout,
+    language = "English",
 }) => {
+    // Translations helper
+    const t = translations[language as keyof typeof translations] || translations['English'];
     const [capacityData, setCapacityData] = useState<CentralizedCapacityResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -123,7 +129,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600 text-xl font-medium">Loading Dashboard...</p>
+                    <p className="text-gray-600 text-xl font-medium">{t.loadingDashboard}</p>
                 </div>
             </div>
         );
@@ -142,13 +148,13 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
                         </button>
                         <h1 className="text-xl font-medium tracking-tight text-gray-800 uppercase">
-                            City General Hospital
+                            {t.cityGeneralHospital}
                         </h1>
                     </div>
 
                     <div className="flex items-center gap-4">
                         <div className="text-sm text-gray-500 hidden md:block">
-                            Real-time capacity monitoring across all hospitals
+                            {t.realTimeCapacityMonitoring}
                         </div>
                         <div className="h-6 w-px bg-gray-300 hidden md:block"></div>
                         <button className="relative p-2 text-gray-500 hover:text-gray-700 transition-colors">
@@ -184,9 +190,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             </span>
                         </div>
                         <div>
-                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Total Beds</h3>
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">{t.totalBeds}</h3>
                             <p className="text-sm text-gray-600">
-                                {capacityData?.citySummary.availableBeds || 208} available
+                                {capacityData?.citySummary.availableBeds || 208} {t.availableLabel.toLowerCase()}
                             </p>
                         </div>
                     </motion.div>
@@ -207,9 +213,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             </span>
                         </div>
                         <div>
-                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">OPD Today</h3>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t.opdToday}</h3>
                             <p className="text-sm text-gray-500">
-                                Last 7 days: {capacityData?.citySummary.last7DaysAppointments || 30}
+                                {t.last7Days}: {capacityData?.citySummary.last7DaysAppointments || 30}
                             </p>
                         </div>
                     </motion.div>
@@ -230,9 +236,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             </span>
                         </div>
                         <div>
-                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Admissions Today</h3>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t.admissionsToday}</h3>
                             <p className="text-sm text-gray-500">
-                                {capacityData?.citySummary.pendingAdmissions || 4} pending
+                                {capacityData?.citySummary.pendingAdmissions || 4} {t.pending.toLowerCase()}
                             </p>
                         </div>
                     </motion.div>
@@ -253,9 +259,9 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             </span>
                         </div>
                         <div>
-                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Active Hospitals</h3>
+                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{t.activeHospitals}</h3>
                             <p className="text-sm text-gray-500">
-                                {((capacityData?.citySummary.occupiedBeds || 0) / (capacityData?.citySummary.totalBeds || 1) * 100).toFixed(1)}% Occupancy
+                                {((capacityData?.citySummary.occupiedBeds || 0) / (capacityData?.citySummary.totalBeds || 1) * 100).toFixed(1)}% {t.occupancy}
                             </p>
                         </div>
                     </motion.div>
@@ -265,7 +271,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
                     {/* Hospital Occupancy Rates */}
                     <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">Hospital Occupancy Rates</h3>
+                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">{t.hospitalOccupancyRates}</h3>
                         <div style={{ width: '100%', height: 300, minHeight: 300 }}>
                             {occupancyData && occupancyData.length > 0 ? (
                                 <ResponsiveContainer width="100%" height={300}>
@@ -308,7 +314,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                 </ResponsiveContainer>
                             ) : (
                                 <div className="h-full flex items-center justify-center text-gray-400">
-                                    No occupancy data available
+                                    {t.noOccupancyData}
                                 </div>
                             )}
                         </div>
@@ -316,7 +322,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
 
                     {/* OPD Patient Load */}
                     <div className="bg-white rounded-3xl p-8 border border-gray-100 shadow-sm">
-                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">OPD Patient Load</h3>
+                        <h3 className="text-lg font-medium text-gray-800 mb-6 font-mono">{t.opdPatientLoad}</h3>
                         <div style={{ width: '100%', height: 300, minHeight: 300 }}>
                             {opdData && opdData.length > 0 ? (
                                 <ResponsiveContainer width="100%" height={300}>
@@ -374,7 +380,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                 </ResponsiveContainer>
                             ) : (
                                 <div className="h-full flex items-center justify-center text-gray-400">
-                                    No OPD data available
+                                    {t.noOpdData}
                                 </div>
                             )}
                         </div>
@@ -384,7 +390,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                 {/* Hospital Details Section */}
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-6 mt-4">
-                        <h2 className="text-xl font-medium text-gray-800 font-mono uppercase tracking-wide">Hospital Details</h2>
+                        <h2 className="text-xl font-medium text-gray-800 font-mono uppercase tracking-wide">{t.hospitalDetails}</h2>
 
                         {/* Search and Filters */}
                         <div className="flex items-center gap-3">
@@ -392,7 +398,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-purple-500 transition-colors" size={18} />
                                 <input
                                     type="text"
-                                    placeholder="Search hospitals..."
+                                    placeholder={t.searchHospitals}
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="pl-12 pr-4 py-2.5 bg-gray-50 border border-transparent focus:bg-white focus:border-purple-200 hover:bg-white hover:border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-purple-50/50 w-64 transition-all shadow-sm"
@@ -403,10 +409,10 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                 onChange={(e) => setFilterType(e.target.value as any)}
                                 className="px-4 py-2.5 bg-gray-50 border border-transparent hover:bg-white hover:border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-4 focus:ring-purple-50/50 text-gray-600 cursor-pointer transition-all shadow-sm"
                             >
-                                <option value="all">All Status</option>
-                                <option value="high">High Load</option>
-                                <option value="medium">Medium</option>
-                                <option value="low">Low Load</option>
+                                <option value="all">{t.allStatus}</option>
+                                <option value="high">{t.highLoad}</option>
+                                <option value="medium">{t.medium}</option>
+                                <option value="low">{t.lowLoad}</option>
                             </select>
                         </div>
                     </div>
@@ -434,7 +440,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                             <h3 className="text-xl text-gray-800 uppercase tracking-widest font-mono mb-2">{hospital.name}</h3>
                                             <p className="text-sm text-gray-500 flex items-center gap-1 font-mono">
                                                 <MapPin size={14} />
-                                                Lat: 19.2831, Lng: 72.8659 {/* Placeholder/Mock coords or use address */}
+                                                {t.lat}: 19.2831, {t.lng}: 72.8659 {/* Placeholder/Mock coords or use address */}
                                             </p>
                                         </div>
                                         <div className={`px-6 py-2.5 rounded-2xl text-sm font-bold tracking-wider uppercase shadow-sm min-w-[180px] flex items-center justify-center gap-2
@@ -442,7 +448,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                                 occupancyRate >= 50 ? 'bg-orange-500 text-white shadow-orange-200' :
                                                     'bg-green-500 text-white shadow-green-200'}`}>
                                             <span>{occupancyRate.toFixed(1)}%</span>
-                                            <span className="opacity-80 text-[10px]">OCCUPIED</span>
+                                            <span className="opacity-80 text-[10px]">{t.occupiedLabel.toUpperCase()}</span>
                                         </div>
                                     </div>
 
@@ -451,7 +457,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Total Beds */}
                                         <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex flex-col justify-between h-24">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Total Beds</span>
+                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">{t.totalBedsLabel}</span>
                                                 <Bed size={16} className="text-blue-500" />
                                             </div>
                                             <span className="text-2xl font-light text-blue-900">{hospital.bedSummary.totalBeds}</span>
@@ -460,7 +466,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Occupied */}
                                         <div className="bg-red-50 rounded-xl p-4 border border-red-100 flex flex-col justify-between h-24">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Occupied</span>
+                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">{t.occupiedLabel}</span>
                                                 <XCircle size={16} className="text-red-500" />
                                             </div>
                                             <span className="text-2xl font-light text-red-900">{hospital.bedSummary.occupiedBeds}</span>
@@ -469,7 +475,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Available */}
                                         <div className="bg-green-50 rounded-xl p-4 border border-green-100 flex flex-col justify-between h-24">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">Available</span>
+                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">{t.availableLabel}</span>
                                                 <CheckCircle size={16} className="text-green-500" />
                                             </div>
                                             <span className="text-2xl font-light text-green-900">{hospital.bedSummary.availableBeds}</span>
@@ -478,7 +484,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* OPD Today */}
                                         <div className="bg-purple-50 rounded-xl p-4 border border-purple-100 flex flex-col justify-between h-24">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">OPD Today</span>
+                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">{t.opdTodayLabel}</span>
                                                 <Calendar size={16} className="text-purple-500" />
                                             </div>
                                             <span className="text-2xl font-light text-purple-900">{hospital.opdLoad.today.total}</span>
@@ -488,15 +494,15 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                     {/* Visual Tracker Header */}
                                     <div className="mb-8 p-4 border border-dashed border-gray-200 rounded-xl bg-gray-50/50">
                                         <div className="flex justify-between items-center mb-4">
-                                            <h4 className="text-sm font-bold text-gray-400 font-mono uppercase tracking-widest">Visual Bed Occupancy Tracker</h4>
+                                            <h4 className="text-sm font-bold text-gray-400 font-mono uppercase tracking-widest">{t.visualBedOccupancyTracker}</h4>
                                             <div className="flex items-center gap-4 text-xs">
                                                 <div className="flex items-center gap-1">
                                                     <div className="w-2 h-2 rounded-sm bg-green-500"></div>
-                                                    <span className="text-gray-500">Available</span>
+                                                    <span className="text-gray-500">{t.availableLabel}</span>
                                                 </div>
                                                 <div className="flex items-center gap-1">
                                                     <div className="w-2 h-2 rounded-sm bg-red-500"></div>
-                                                    <span className="text-gray-500">Occupied</span>
+                                                    <span className="text-gray-500">{t.occupiedLabel}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -513,7 +519,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                                                 ${b.status === 'occupied'
                                                                     ? "bg-red-500 border-red-500"
                                                                     : "bg-white border-green-500 text-green-600 hover:bg-green-50"}`}
-                                                            title={b.status === 'available' ? "Click to Request" : "Occupied"}
+                                                            title={b.status === 'available' ? t.clickToRequest : t.occupiedLabel}
                                                         >
                                                             <Bed size={12} fill={b.status === 'occupied' ? "white" : "none"} />
                                                         </div>
@@ -565,36 +571,36 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* OPD Status */}
                                         <div className="bg-purple-50 rounded-2xl p-6 border border-purple-100">
                                             <div className="flex justify-between items-start mb-4">
-                                                <h4 className="text-xs font-bold text-purple-700 uppercase tracking-widest">OPD Status</h4>
+                                                <h4 className="text-xs font-bold text-purple-700 uppercase tracking-widest">{t.opdStatus}</h4>
                                                 <Calendar size={16} className="text-purple-500" />
                                             </div>
                                             <div className="mb-4">
                                                 <span className="text-3xl font-light text-purple-900">
                                                     {hospital.opdLoad.today.completed}/{hospital.opdLoad.today.total}
                                                 </span>
-                                                <span className="ml-2 text-sm text-purple-600 font-mono">Completed</span>
+                                                <span className="ml-2 text-sm text-purple-600 font-mono">{t.completedLabel}</span>
                                             </div>
                                             <div className="flex gap-4 text-xs font-mono text-purple-600/70 uppercase">
-                                                <span>{hospital.opdLoad.today.scheduled} Scheduled</span>
-                                                <span>{hospital.opdLoad.today.cancelled} Cancelled</span>
+                                                <span>{hospital.opdLoad.today.scheduled} {t.scheduledLabel}</span>
+                                                <span>{hospital.opdLoad.today.cancelled} {t.cancelledLabel}</span>
                                             </div>
                                         </div>
 
                                         {/* Admissions */}
                                         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
                                             <div className="flex justify-between items-start mb-4">
-                                                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest">Admissions</h4>
+                                                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest">{t.admissions}</h4>
                                                 <Users size={16} className="text-gray-400" />
                                             </div>
                                             <div className="mb-4">
                                                 <span className="text-3xl font-light text-gray-800">
                                                     {hospital.admissionsLoad.today}
                                                 </span>
-                                                <span className="ml-2 text-sm text-gray-500 font-mono">Today</span>
+                                                <span className="ml-2 text-sm text-gray-500 font-mono">{t.today}</span>
                                             </div>
                                             <div className="flex gap-4 text-xs font-mono text-gray-500 uppercase">
-                                                <span>{hospital.admissionsLoad.pending} Pending</span>
-                                                <span>{hospital.admissionsLoad.admitted} Admitted</span>
+                                                <span>{hospital.admissionsLoad.pending} {t.pending}</span>
+                                                <span>{hospital.admissionsLoad.admitted} {t.admitted}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -645,7 +651,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                             ${getOccupancyRate(selectedHospital) >= 80 ? 'bg-orange-500 text-white' :
                                                 getOccupancyRate(selectedHospital) >= 50 ? 'bg-orange-500 text-white' :
                                                     'bg-green-500 text-white'}`}>
-                                            {getOccupancyRate(selectedHospital).toFixed(1)}% OCCUPIED
+                                            {getOccupancyRate(selectedHospital).toFixed(1)}% {t.occupiedLabel.toUpperCase()}
                                         </div>
                                     </div>
 
@@ -654,7 +660,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Total Beds */}
                                         <div className="bg-blue-50 rounded-xl p-6 border border-blue-100 flex flex-col justify-between h-32">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">Total Beds</span>
+                                                <span className="text-xs font-bold text-blue-400 uppercase tracking-widest">{t.totalBedsLabel}</span>
                                                 <Bed size={20} className="text-blue-500" />
                                             </div>
                                             <span className="text-4xl font-light text-blue-900 tracking-tighter">{selectedHospital.bedSummary.totalBeds}</span>
@@ -663,7 +669,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Occupied */}
                                         <div className="bg-red-50 rounded-xl p-6 border border-red-100 flex flex-col justify-between h-32">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">Occupied</span>
+                                                <span className="text-xs font-bold text-red-400 uppercase tracking-widest">{t.occupiedLabel}</span>
                                                 <XCircle size={20} className="text-red-500" />
                                             </div>
                                             <span className="text-4xl font-light text-red-900 tracking-tighter">{selectedHospital.bedSummary.occupiedBeds}</span>
@@ -672,7 +678,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* Available */}
                                         <div className="bg-green-50 rounded-xl p-6 border border-green-100 flex flex-col justify-between h-32">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">Available</span>
+                                                <span className="text-xs font-bold text-green-400 uppercase tracking-widest">{t.availableLabel}</span>
                                                 <CheckCircle size={20} className="text-green-500" />
                                             </div>
                                             <span className="text-4xl font-light text-green-900 tracking-tighter">{selectedHospital.bedSummary.availableBeds}</span>
@@ -681,7 +687,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                         {/* OPD Today */}
                                         <div className="bg-purple-50 rounded-xl p-6 border border-purple-100 flex flex-col justify-between h-32">
                                             <div className="flex justify-between items-start">
-                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">OPD Today</span>
+                                                <span className="text-xs font-bold text-purple-400 uppercase tracking-widest">{t.opdTodayLabel}</span>
                                                 <Calendar size={20} className="text-purple-500" />
                                             </div>
                                             <span className="text-4xl font-light text-purple-900 tracking-tighter">{selectedHospital.opdLoad.today.total}</span>
@@ -693,15 +699,15 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                             <div className="p-8 overflow-y-auto bg-white flex-1">
                                 <div className="border border-gray-200 rounded-3xl p-6">
                                     <div className="flex justify-between items-center mb-8">
-                                        <h4 className="text-lg font-bold text-gray-500 font-mono uppercase tracking-widest">Visual Bed Occupancy Tracker</h4>
+                                        <h4 className="text-lg font-bold text-gray-500 font-mono uppercase tracking-widest">{t.visualBedOccupancyTracker}</h4>
                                         <div className="flex items-center gap-6 text-xs">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-3 h-3 rounded bg-green-500"></div>
-                                                <span className="text-gray-600 font-medium">Available</span>
+                                                <span className="text-gray-600 font-medium">{t.availableLabel}</span>
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 <div className="w-3 h-3 rounded bg-red-600"></div>
-                                                <span className="text-gray-600 font-medium">Occupied</span>
+                                                <span className="text-gray-600 font-medium">{t.occupiedLabel}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -712,7 +718,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                                 <div className="flex justify-between items-end">
                                                     <h5 className="text-sm font-bold text-gray-600 uppercase tracking-wider">{bed.type}</h5>
                                                     <span className="text-xs text-gray-500 italic font-mono">
-                                                        {bed.occupied} Occupied • {bed.available} Available
+                                                        {bed.occupied} {t.occupiedLabel} • {bed.available} {t.availableLabel}
                                                     </span>
                                                 </div>
 
@@ -736,7 +742,7 @@ export const CentralizedDashboard: React.FC<CentralizedDashboardProps> = ({
                                                                         ? "bg-red-600 text-white"
                                                                         : "bg-white border border-green-500 text-green-600 hover:bg-green-50"
                                                                     }`}
-                                                                title={`${b.status === 'available' ? "Click to Request " : ""}${bed.type} Bed ${b.number}`}
+                                                                title={`${b.status === 'available' ? t.clickToRequest + " " : ""}${bed.type} Bed ${b.number}`}
                                                             >
                                                                 <Bed size={14} />
                                                                 <span className={`absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[8px] font-bold rounded-full border

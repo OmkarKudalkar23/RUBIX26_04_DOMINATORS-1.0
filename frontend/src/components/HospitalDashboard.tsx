@@ -987,7 +987,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
                     { id: "appointments", icon: Calendar, label: t.appointments },
                     { id: "inventory", icon: Package, label: t.inventory },
-                    { id: "city", icon: Globe, label: "City Dashboard" },
+                    { id: "city", icon: Globe, label: t.cityDashboard },
                     { id: "settings", icon: Settings, label: t.settings },
                   ].map((item) => (
                     <button
@@ -1026,7 +1026,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             { id: "surge", icon: TrendingUp, label: t.surgeAlerts },
             { id: "appointments", icon: Calendar, label: t.appointments },
             { id: "inventory", icon: Package, label: t.inventory },
-            { id: "city", icon: Globe, label: "City Dashboard" },
+            { id: "city", icon: Globe, label: t.cityDashboard },
             { id: "settings", icon: Settings, label: t.settings },
           ].map((item) => (
             <button
@@ -1843,7 +1843,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           const priorityOrder: any = { critical: 0, high: 1, normal: 2, low: 3 };
                           return priorityOrder[a.priority] - priorityOrder[b.priority];
                         })
-                        .map((entry: any) => {
+                        .map((entry: any, index: number) => {
                           const borderColor =
                             entry.isEmergency || entry.priority === 'critical'
                               ? 'border-l-4 border-red-500 bg-red-50'
@@ -1868,7 +1868,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                 <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-3">
                                   <div className="flex items-center gap-3">
                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold ${entry.isEmergency ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-700'}`}>
-                                      {entry.queueNumber}
+                                      {index + 1}
                                     </div>
                                     <div>
                                       <p className="text-xs text-gray-500 uppercase tracking-wide">Patient</p>
@@ -1885,9 +1885,9 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                     <p className="text-xs text-gray-500 uppercase tracking-wide">Status</p>
                                     <div className="flex items-center gap-2">
                                       <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${entry.status === 'in-consult' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
-                                          entry.status === 'in-triage' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
-                                            entry.status === 'completed' ? 'bg-green-100 text-green-700 border border-green-200' :
-                                              'bg-blue-50 text-blue-700 border border-blue-100'
+                                        entry.status === 'in-triage' ? 'bg-orange-100 text-orange-700 border border-orange-200' :
+                                          entry.status === 'completed' ? 'bg-green-100 text-green-700 border border-green-200' :
+                                            'bg-blue-50 text-blue-700 border border-blue-100'
                                         }`}>
                                         {entry.status === 'in-consult' ? 'In Consult' :
                                           entry.status === 'in-triage' ? 'Triage' :
@@ -2197,42 +2197,43 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             {
               activeTab === "surge" && (
                 <div className="space-y-6">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div>
-                      <h2
-                        className="text-2xl md:text-3xl uppercase tracking-wide"
-                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
-                      >
-                        Surge Predictions & Alerts
-                      </h2>
-                      <p className="text-sm text-gray-500 mt-4">
-                        AI-powered predictions based on environmental and seasonal data
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setShowAddAlertModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors text-sm uppercase tracking-wide"
-                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                      >
-                        <AlertTriangle className="w-4 h-4" />
-                        Broadcast Alert
-                      </button>
-                      <button
-                        onClick={() => setShowAlertConfigModal(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
-                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                      >
-                        <Settings className="w-4 h-4 mt-2" />
-                        Configure Alerts
-                      </button>
-                    </div>
+                  {/* Title Section */}
+                  <div>
+                    <h2
+                      className="text-2xl md:text-3xl uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
+                    >
+                      Surge Predictions & Alerts
+                    </h2>
+                    <p className="text-sm text-gray-500 mt-2">
+                      AI-powered predictions based on environmental and seasonal data
+                    </p>
+                  </div>
+
+                  {/* Action Buttons - Now below title */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAddAlertModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors text-sm uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Broadcast Alert
+                    </button>
+                    <button
+                      onClick={() => setShowAlertConfigModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                    >
+                      <Settings className="w-4 h-4" />
+                      Configure Alerts
+                    </button>
                   </div>
 
                   {/* Environmental Data Card */}
                   <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-6">
                     <h3
-                      className="text-lg uppercase tracking-wide mb-4 mt-10"
+                      className="text-lg uppercase tracking-wide mb-4"
                       style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                     >
                       Current Environmental Data
@@ -2418,7 +2419,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
             {/* City Dashboard Tab */}
             {
               activeTab === "city" && (
-                <CentralizedDashboard onLogout={onLogout} isEmbedded={true} />
+                <CentralizedDashboard onLogout={onLogout} isEmbedded={true} language={language} />
               )
             }
 
