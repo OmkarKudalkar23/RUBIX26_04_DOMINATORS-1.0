@@ -18,6 +18,7 @@ const { fetchRealTimeEnvironmentData } = require('../services/aqiService');
 const axios = require('axios');
 const { allocateBed } = require('../services/admissionRules');
 const BedRequest = require('../models/BedRequest');
+const InternalBedRequest = require('../models/InternalBedRequest');
 
 const router = express.Router();
 
@@ -216,7 +217,7 @@ router.patch('/beds/:id', async (req, res) => {
         const targetBed = bed.beds.find(b => b.number === bedNumber);
         if (!targetBed) return res.status(404).json({ message: 'Bed number not found' });
 
-        const { force, admissionType, priority, patientId, blockedReason, cleaningEta, expectedDischargeTime, notes } = req.body;
+        const { force, admissionType, priority, patientId, blockedReason, cleaningEta, expectedDischargeTime, notes, patientName, department, hasVentilator, hasOxygen, isIsolation } = req.body;
 
         // Helper to check valid transition
         const checkTransition = (current, allowed, actionName) => {
@@ -235,7 +236,13 @@ router.patch('/beds/:id', async (req, res) => {
               targetBed.occupiedSince = new Date();
               targetBed.admissionType = admissionType || 'Emergency';
               targetBed.priority = priority || 'Normal';
+              targetBed.department = department || '';
+              targetBed.notes = notes || '';
+              targetBed.hasVentilator = hasVentilator || false;
+              targetBed.hasOxygen = hasOxygen || false;
+              targetBed.isIsolation = isIsolation || false;
               if (patientId) targetBed.patientId = patientId;
+              if (patientName) targetBed.patientName = patientName;
               // Reset others
               targetBed.cleaningEta = null;
               targetBed.expectedDischargeTime = null;
@@ -1213,6 +1220,239 @@ router.patch('/opd/queue/:id', async (req, res) => {
   }
 });
 
+// ==================== CONSULTATION OUTCOMES & INTERNAL BED REQUESTS ====================
+
+// POST /api/hospital/opd/:id/consultation-outcome
+// Doctor endpoint to record consultation outcome (complete, observation, or admit)
+router.post('/opd/:id/consultation-outcome', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const checkIn = await HospitalOpdCheckIn.findById(req.params.id);
+    if (!checkIn) return res.status(404).json({ message: 'Check-in not found' });
+    if (checkIn.hospitalId.toString() !== hospital._id.toString()) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const { outcome, admitData } = req.body;
+    // outcome: 'completed' | 'observation' | 'admit'
+
+    if (!outcome || !['completed', 'observation', 'admit'].includes(outcome)) {
+      return res.status(400).json({ message: 'Invalid outcome. Must be: completed, observation, or admit' });
+    }
+
+    let internalBedRequest = null;
+
+    if (outcome === 'completed') {
+      checkIn.status = 'completed';
+    } else if (outcome === 'observation') {
+      checkIn.status = 'observation';
+    } else if (outcome === 'admit') {
+      // Validate admission data
+      if (!admitData || !admitData.bedType || !admitData.department) {
+        return res.status(400).json({ message: 'admitData with bedType and department is required for admission' });
+      }
+
+      // Create internal bed request
+      internalBedRequest = new InternalBedRequest({
+        hospitalId: hospital._id,
+        opdCheckInId: checkIn._id,
+        patientName: checkIn.patientName,
+        department: admitData.department,
+        bedType: admitData.bedType,
+        urgencyLevel: admitData.urgencyLevel || 'routine',
+        reason: admitData.reason || '',
+        requestedBy: checkIn.doctorId || undefined,
+        requestedByName: checkIn.doctorName || '',
+        status: 'pending'
+      });
+
+      await internalBedRequest.save();
+
+      // Update OPD status
+      checkIn.status = 'transferred-for-admission';
+      checkIn.notes = (checkIn.notes ? checkIn.notes + '\n' : '') +
+        `[Admission Requested] Bed: ${admitData.bedType}, Urgency: ${admitData.urgencyLevel || 'routine'}, Dept: ${admitData.department}`;
+    }
+
+    await checkIn.save();
+
+    console.log(`📋 Consultation outcome for patient "${checkIn.patientName}": ${outcome}`);
+
+    res.json({
+      success: true,
+      outcome,
+      opdCheckIn: {
+        id: checkIn._id.toString(),
+        patientName: checkIn.patientName,
+        status: checkIn.status
+      },
+      internalBedRequest: internalBedRequest ? {
+        id: internalBedRequest._id.toString(),
+        status: internalBedRequest.status,
+        bedType: internalBedRequest.bedType,
+        urgencyLevel: internalBedRequest.urgencyLevel
+      } : null
+    });
+  } catch (error) {
+    console.error('Error recording consultation outcome:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET /api/hospital/internal-bed-requests
+// Get internal bed requests for admission staff to process
+router.get('/internal-bed-requests', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const { status, limit = 50 } = req.query;
+
+    const query = { hospitalId: hospital._id };
+    if (status) {
+      query.status = status;
+    }
+
+    const requests = await InternalBedRequest.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .populate('opdCheckInId', 'department visitType priority queueNumber checkInTime')
+      .populate('requestedBy', 'name specialization');
+
+    res.json(requests.map(r => ({
+      id: r._id.toString(),
+      opdCheckInId: r.opdCheckInId?._id?.toString() || null,
+      patientName: r.patientName,
+      department: r.department,
+      bedType: r.bedType,
+      urgencyLevel: r.urgencyLevel,
+      reason: r.reason,
+      requestedByName: r.requestedBy?.name || r.requestedByName || 'Unknown',
+      status: r.status,
+      responseNotes: r.responseNotes,
+      createdAt: r.createdAt,
+      opdDetails: r.opdCheckInId ? {
+        department: r.opdCheckInId.department,
+        visitType: r.opdCheckInId.visitType,
+        priority: r.opdCheckInId.priority,
+        queueNumber: r.opdCheckInId.queueNumber,
+        checkInTime: r.opdCheckInId.checkInTime
+      } : null
+    })));
+  } catch (error) {
+    console.error('Error fetching internal bed requests:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// GET /api/hospital/internal-bed-requests/count
+// Get count of pending internal bed requests (for notification badge)
+router.get('/internal-bed-requests/count', async (req, res) => {
+  try {
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const pendingCount = await InternalBedRequest.countDocuments({
+      hospitalId: hospital._id,
+      status: 'pending'
+    });
+
+    res.json({ pendingCount });
+  } catch (error) {
+    console.error('Error counting internal bed requests:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// PATCH /api/hospital/internal-bed-requests/:id
+// Admission staff approves/rejects internal bed requests
+router.patch('/internal-bed-requests/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, responseNotes } = req.body;
+
+    const hospital = await getHospitalByUserId(req.user.id);
+    if (!hospital) return res.status(404).json({ message: 'Hospital profile not found' });
+
+    const bedRequest = await InternalBedRequest.findById(id);
+    if (!bedRequest) return res.status(404).json({ message: 'Internal bed request not found' });
+    if (bedRequest.hospitalId.toString() !== hospital._id.toString()) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    if (status && !['pending', 'approved', 'rejected', 'allocated', 'cancelled'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+
+    // Update fields
+    if (status) bedRequest.status = status;
+    if (responseNotes !== undefined) bedRequest.responseNotes = responseNotes;
+    bedRequest.handledBy = req.user.id;
+
+    // If approved, optionally create a HospitalAdmission record for the bed allocation workflow
+    if (status === 'approved') {
+      // Create admission record that can go through the existing bed allocation flow
+      const admission = new HospitalAdmission({
+        hospitalId: hospital._id,
+        patientName: bedRequest.patientName,
+        department: bedRequest.department,
+        bedType: bedRequest.bedType,
+        severity: bedRequest.urgencyLevel === 'emergency' ? 'critical' :
+          bedRequest.urgencyLevel === 'urgent' ? 'high' : 'medium',
+        status: 'pending'
+      });
+
+      // Attempt auto-allocation using existing rules
+      const beds = await HospitalBed.find({ hospitalId: hospital._id });
+      const alloc = allocateBed(admission, beds);
+
+      if (alloc) {
+        admission.status = 'allocated';
+        admission.allocatedBedTypeId = alloc.allocatedBed._id;
+
+        // AUTO-RESERVE SPECIFIC BED SLOT
+        const bedRecord = alloc.allocatedBed;
+        const availableSlot = bedRecord.beds.find(b => b.status === 'available');
+
+        if (availableSlot) {
+          availableSlot.status = 'reserved';
+          availableSlot.patientName = bedRequest.patientName;
+          availableSlot.notes = `Reserved for Internal Admission: ${bedRequest.department}`;
+          availableSlot.reservedAt = new Date();
+
+          // Save the bed record
+          await bedRecord.save();
+
+          admission.allocationNote = `${alloc.allocationNote} Reserved Bed #${availableSlot.number}.`;
+        } else {
+          admission.allocationNote = `${alloc.allocationNote} (No specific bed slot available to reserve).`;
+        }
+      } else {
+        admission.allocationNote = 'No beds available for the requested constraints. Manual allocation required.';
+      }
+
+      await admission.save();
+      bedRequest.admissionId = admission._id;
+    }
+
+    await bedRequest.save();
+
+    console.log(`🛏️ Internal bed request ${id} updated: status=${bedRequest.status}`);
+
+    res.json({
+      id: bedRequest._id.toString(),
+      status: bedRequest.status,
+      responseNotes: bedRequest.responseNotes,
+      admissionId: bedRequest.admissionId?.toString() || null
+    });
+  } catch (error) {
+    console.error('Error updating internal bed request:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // ==================== INVENTORY ====================
 
 // GET /api/hospital/inventory
@@ -1882,6 +2122,89 @@ router.patch('/bed-requests/:id', async (req, res) => {
     if (status) bedRequest.status = status;
     if (isRead !== undefined) bedRequest.isRead = isRead;
     if (responseNotes) bedRequest.responseNotes = responseNotes;
+
+    // AUTO-RESERVE BED WHEN APPROVED
+    if (status === 'approved') {
+      const requestedType = bedRequest.bedType || 'General';
+      console.log(`🔍 Looking for bed type: "${requestedType}" for hospital ${hospital._id}`);
+
+      // Find the HospitalBed record for the requested bedType
+      let bedRecord = await HospitalBed.findOne({
+        hospitalId: hospital._id,
+        type: requestedType
+      });
+
+      console.log(`📋 Bed record found: ${bedRecord ? `Yes (${bedRecord.type}, ${bedRecord.beds?.length || 0} beds)` : 'No'}`);
+
+      // If no exact match, try case-insensitive or any bed type
+      if (!bedRecord) {
+        bedRecord = await HospitalBed.findOne({
+          hospitalId: hospital._id,
+          type: { $regex: new RegExp(`^${requestedType}$`, 'i') }
+        });
+        console.log(`📋 Case-insensitive match: ${bedRecord ? `Yes (${bedRecord.type})` : 'No'}`);
+      }
+
+      // If still no match, find ANY bed record with available beds
+      if (!bedRecord) {
+        const allBedRecords = await HospitalBed.find({ hospitalId: hospital._id });
+        console.log(`📋 Total bed records for hospital: ${allBedRecords.length}`);
+
+        for (const record of allBedRecords) {
+          console.log(`   - Type: ${record.type}, Beds: ${record.beds?.length || 0}`);
+          const hasAvailable = record.beds?.some(b => b.status === 'available');
+          if (hasAvailable) {
+            bedRecord = record;
+            console.log(`   ✓ Found available bed in ${record.type}`);
+            break;
+          }
+        }
+      }
+
+      // If still no bed record, create one
+      if (!bedRecord) {
+        console.log(`📋 Creating new bed record for type: ${requestedType}`);
+        bedRecord = new HospitalBed({
+          hospitalId: hospital._id,
+          type: requestedType,
+          total: 20,
+          occupied: 0,
+          available: 20,
+          beds: Array.from({ length: 20 }, (_, i) => ({ number: i + 1, status: 'available' }))
+        });
+        await bedRecord.save();
+      }
+
+      // Ensure beds array exists and is populated
+      if (!bedRecord.beds || bedRecord.beds.length === 0) {
+        bedRecord.beds = Array.from({ length: bedRecord.total || 20 }, (_, i) => ({ number: i + 1, status: 'available' }));
+      }
+
+      // Find an available bed
+      const availableBed = bedRecord.beds.find(b => b.status === 'available');
+      console.log(`🛏️ Available bed found: ${availableBed ? `Yes (Bed #${availableBed.number})` : 'No'}`);
+
+      if (availableBed) {
+        // Reserve the bed with patient data from the request
+        availableBed.status = 'reserved';
+        availableBed.isExternalReservation = true;
+        availableBed.fromHospitalId = bedRequest.fromHospitalId;
+        availableBed.fromHospitalName = bedRequest.fromHospitalName;
+        availableBed.externalPatientName = bedRequest.patientName;
+        availableBed.externalPatientAge = bedRequest.age;
+        availableBed.externalPatientGender = bedRequest.gender;
+        availableBed.externalPatientContact = bedRequest.contact;
+        availableBed.externalPatientBloodGroup = bedRequest.bloodGroup;
+        availableBed.externalPatientCondition = bedRequest.condition;
+        availableBed.notes = `Reserved for patient from ${bedRequest.fromHospitalName}`;
+        availableBed.reservedAt = new Date();
+
+        await bedRecord.save();
+        console.log(`✅ Bed #${availableBed.number} (${bedRecord.type}) reserved for external patient "${bedRequest.patientName}" from ${bedRequest.fromHospitalName}`);
+      } else {
+        console.log(`⚠️ No available beds for type ${requestedType} - request approved but no bed reserved`);
+      }
+    }
 
     await bedRequest.save();
 

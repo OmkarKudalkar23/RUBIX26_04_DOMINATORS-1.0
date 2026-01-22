@@ -59,7 +59,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
 
 // Import API service
-import { getPatientData, markMedicineAsTaken, toggleMedicineReminder, getPatientProfile, getHospitals, getDoctors, getNearbyHospitalsForPatient, getRoute, createAppointment, createPrediction, getEarlyWarning } from "../services/api";
+import { getPatientData, markMedicineAsTaken, toggleMedicineReminder, getPatientProfile, getHospitals, getDoctors, getNearbyHospitalsForPatient, getRoute, createAppointment, createPrediction, getEarlyWarning, getMLPrediction, type MLPredictionResponse } from "../services/api";
 import axios from "axios";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -89,8 +89,8 @@ function haversineDistance([lat1, lon1]: [number, number], [lat2, lon2]: [number
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -274,12 +274,12 @@ const generateHistoricalTakings = (daysBack: number, times: string[], startDate?
   const takings: MedicineTaking[] = [];
   const today = new Date();
   const referenceDate = startDate || today;
-  
+
   for (let i = daysBack; i >= 0; i--) {
     const date = new Date(referenceDate);
     date.setDate(date.getDate() - i);
     const dateStr = date.toISOString().split('T')[0];
-    
+
     times.forEach(time => {
       // Random adherence for past days (80% adherence rate)
       const adherenceChance = 0.80;
@@ -292,7 +292,7 @@ const generateHistoricalTakings = (daysBack: number, times: string[], startDate?
       });
     });
   }
-  
+
   return takings;
 };
 
@@ -301,21 +301,21 @@ const hasMedicineTimePassed = (medicineTime: string): boolean => {
   const now = new Date();
   const currentHour = now.getHours();
   const currentMinute = now.getMinutes();
-  
+
   const timeMap: { [key: string]: { hour: number; minute: number } } = {
     'Morning': { hour: 8, minute: 0 },
     'Afternoon': { hour: 14, minute: 0 },
     'Evening': { hour: 18, minute: 0 },
     'Night': { hour: 21, minute: 0 }
   };
-  
+
   const scheduledTime = timeMap[medicineTime];
   if (!scheduledTime) return false;
-  
+
   // Check if current time is past the scheduled time
   if (currentHour > scheduledTime.hour) return true;
   if (currentHour === scheduledTime.hour && currentMinute >= scheduledTime.minute) return true;
-  
+
   return false;
 };
 
@@ -336,7 +336,7 @@ const CURRENCY_RATES: { [key: string]: { rate: number; symbol: string; name: str
 const convertCurrency = (amountUSD: number, targetCurrency: string): string => {
   const currencyInfo = CURRENCY_RATES[targetCurrency] || CURRENCY_RATES.USD;
   const convertedAmount = amountUSD * currencyInfo.rate;
-  
+
   // Format with 2 decimal places for most currencies, 0 for JPY
   const decimals = targetCurrency === 'JPY' ? 0 : 2;
   return `${currencyInfo.symbol}${convertedAmount.toFixed(decimals)}`;
@@ -361,11 +361,11 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [medicalRecords, setMedicalRecords] = useState<MedicalRecord[]>([]);
   const [predictions, setPredictions] = useState<PredictionResult[]>([]);
-  const [expenses, setExpenses] = useState<{name: string; amount: number; date: string; category: string}[]>([]);
+  const [expenses, setExpenses] = useState<{ name: string; amount: number; date: string; category: string }[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeDeliveries, setActiveDeliveries] = useState<DeliveryTracking[]>([]);
   const [pastDeliveries, setPastDeliveries] = useState<DeliveryTracking[]>([]);
-  
+
   // Hospitals and doctors from backend
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
@@ -382,7 +382,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const [isCallActive, setIsCallActive] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [isCallingAI, setIsCallingAI] = useState(false);
-  
+
   // Buy Medicines State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedShopMedicine, setSelectedShopMedicine] = useState<ShopMedicine | null>(null);
@@ -393,7 +393,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [prescriptionRequiredFilter, setPrescriptionRequiredFilter] = useState("all");
   const [showPrescriptionUploadForCart, setShowPrescriptionUploadForCart] = useState(false);
-  
+
   // Disease Prediction State
   const [showPredictionModal, setShowPredictionModal] = useState(false);
   const [selectedPredictionType, setSelectedPredictionType] = useState<"heart" | "diabetes" | "kidney" | "sepsis" | null>(null);
@@ -468,7 +468,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   };
 
   const [profileData, setProfileData] = useState(getInitialProfileData());
-  
+
   // Update profileData immediately with user name from localStorage on mount
   useEffect(() => {
     try {
@@ -487,7 +487,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       console.log('Error reading user from localStorage:', e);
     }
   }, []); // Run once on mount
-  
+
   // Expenses are stored in USD (numbers), converted for display dynamically - already declared above
   const [selectedHospital, setSelectedHospital] = useState("");
   const [selectedDoctor, setSelectedDoctor] = useState("");
@@ -501,7 +501,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     }
     return 'INR';
   });
-  
+
   // Save currency preference to localStorage
   const handleCurrencyChange = (currency: string) => {
     setSelectedCurrency(currency);
@@ -509,7 +509,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       localStorage.setItem('healthsync_currency', currency);
     }
   };
-  
+
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -528,19 +528,19 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
 
   // Vitals - empty by default, can be populated from backend if available
   const [vitals, setVitals] = useState<Vital[]>([]);
-  
+
   // Historical vitals data for charts - empty by default
-  const [heartRateHistory, setHeartRateHistory] = useState<Array<{date: string; value: number; time?: string}>>([]);
-  const [bloodPressureHistory, setBloodPressureHistory] = useState<Array<{date: string; systolic: number; diastolic: number}>>([]);
-  const [temperatureHistory, setTemperatureHistory] = useState<Array<{date: string; value: number}>>([]);
-  const [weightHistory, setWeightHistory] = useState<Array<{date: string; value: number}>>([]);
-  const [bloodSugarHistory, setBloodSugarHistory] = useState<Array<{date: string; value: number; time?: string}>>([]);
-  
+  const [heartRateHistory, setHeartRateHistory] = useState<Array<{ date: string; value: number; time?: string }>>([]);
+  const [bloodPressureHistory, setBloodPressureHistory] = useState<Array<{ date: string; systolic: number; diastolic: number }>>([]);
+  const [temperatureHistory, setTemperatureHistory] = useState<Array<{ date: string; value: number }>>([]);
+  const [weightHistory, setWeightHistory] = useState<Array<{ date: string; value: number }>>([]);
+  const [bloodSugarHistory, setBloodSugarHistory] = useState<Array<{ date: string; value: number; time?: string }>>([]);
+
   // Nearest hospitals - will be fetched from backend
   // Nearest hospitals - real-time from OpenStreetMap
   const [nearestHospitals, setNearestHospitals] = useState<Array<{
     id: string;
-    name: string; 
+    name: string;
     distance: number;
     distanceFormatted: string;
     estimatedTime: number;
@@ -550,7 +550,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     lng?: number;
     emergency: boolean;
   }>>([]);
-  
+
   // User location state
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -560,6 +560,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const [selectedHospitalForBooking, setSelectedHospitalForBooking] = useState<any>(null);
   const [showRouteAfterBooking, setShowRouteAfterBooking] = useState(false);
   const [bookedHospital, setBookedHospital] = useState<any>(null);
+  const [mlPrediction, setMlPrediction] = useState<MLPredictionResponse | null>(null);
 
   // Fetch patient data from backend on mount
   useEffect(() => {
@@ -567,10 +568,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       try {
         setIsLoading(true);
         setError(null);
-        
+
         // Get patient ID from URL first, then localStorage, then use demo
         let patientId = 'demo-patient-id';
-        
+
         // First, try to get from URL query parameter
         try {
           const urlParams = new URLSearchParams(window.location.search);
@@ -582,7 +583,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         } catch (e) {
           console.log('Could not read URL params:', e);
         }
-        
+
         // If not in URL, try localStorage (stored after login)
         if (patientId === 'demo-patient-id') {
           try {
@@ -593,7 +594,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               if (user.role === 'patient') {
                 patientId = user.patientId || 'demo-patient-id';
                 console.log('Fetching data for patient ID from localStorage:', patientId);
-                
+
                 // Update URL if we have patientId from localStorage but not in URL
                 if (patientId !== 'demo-patient-id') {
                   const newUrl = `${window.location.origin}${window.location.pathname}?id=${patientId}`;
@@ -609,7 +610,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             console.log('No user found, using demo patient ID');
           }
         }
-        
+
         // Get userId from localStorage for profile fetch fallback
         let userId = null;
         try {
@@ -622,7 +623,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         } catch (e) {
           console.log('Error reading userId from localStorage:', e);
         }
-        
+
         // Fetch all patient data in parallel - don't fail if API is down
         try {
           const [data, profile, hospitalsData, doctorsData] = await Promise.all([
@@ -634,15 +635,15 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             getHospitals().catch(() => []), // Hospitals for appointment booking
             getDoctors().catch(() => []) // Doctors for appointment booking
           ]);
-          
+
           console.log('Profile fetch result:', profile);
-          
+
           // Set hospitals and doctors
           setHospitals(hospitalsData);
           setDoctors(doctorsData);
-          
+
           // Don't set mock hospitals - will be fetched from real-time location based on user's GPS location
-          
+
           // Set the fetched data to state
           if (data) {
             setMedicines(data.medicines || []);
@@ -651,7 +652,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             setPredictions(data.predictions || []);
             setExpenses(data.expenses || []);
             setOrders(data.orders || []);
-            
+
             // Update deliveries - convert to DeliveryTracking format
             const activeDeliveriesData = (data.deliveries || []).map(delivery => ({
               orderId: delivery.orderId,
@@ -665,7 +666,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             }));
             setActiveDeliveries(activeDeliveriesData);
           }
-          
+
           // Get user data from localStorage for fallback
           let userFromStorage = null;
           try {
@@ -676,28 +677,28 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           } catch (e) {
             console.log('Error reading user from localStorage:', e);
           }
-          
+
           // Set profile data - prioritize profile data, fallback to localStorage user data
           if (profile) {
             // Use profile fullName, but make sure it's not empty or 'Unknown' if we have user name
             let displayName = profile.fullName || '';
-            
+
             // If profile fullName is empty, 'Unknown', or 'John Doe', use user name from localStorage
             if (!displayName || displayName === 'Unknown' || displayName === 'John Doe') {
               displayName = userFromStorage?.name || '';
             }
-            
+
             // Final fallback: if still empty, use what came from profile
             if (!displayName) {
               displayName = profile.fullName || userFromStorage?.name || '';
             }
-            
+
             console.log('Setting profile data:', {
               profileFullName: profile.fullName,
               userFromStorageName: userFromStorage?.name,
               displayName: displayName
             });
-            
+
             setProfileData({
               fullName: displayName,
               dob: profile.dob || '',
@@ -708,7 +709,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               address: profile.address || ''
             });
             setMedicalHistory(profile.medicalHistory || []);
-            
+
             // Update settings with patient's address
             if (profile.address) {
               setSettings(prev => ({
@@ -716,7 +717,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 address: profile.address || '',
                 location: profile.address || ''
               }));
-              
+
               // Set delivery address from profile
               setDeliveryAddress({
                 street: profile.address.split(',')[0] || profile.address,
@@ -745,7 +746,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           console.warn('API call failed, using empty data:', apiError);
           // Continue with empty arrays - UI will still render
         }
-        
+
         setIsLoading(false);
       } catch (err: any) {
         console.error('Error in fetchPatientData:', err);
@@ -753,21 +754,28 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         setIsLoading(false);
       }
     };
-    
+
     fetchPatientData();
   }, []); // Run once on mount
 
   // Fetch early warning alerts and AQI data
   useEffect(() => {
+    // Fetch ML Prediction
+    try {
+      getMLPrediction('Mumbai').then(setMlPrediction).catch(console.error);
+    } catch (err) {
+      console.error("Failed to fetch ML prediction:", err);
+    }
+
     const fetchAlerts = async () => {
       try {
         // Default to Mumbai, but could be based on user location
         const city = 'Mumbai';
-        
+
         // Fetch early warning alerts
         try {
           const earlyWarning = await getEarlyWarning(city);
-          
+
           if (earlyWarning && earlyWarning.alert_level && earlyWarning.alert_level !== 'NORMAL') {
             // Map alert level to alert type
             const alertTypeMap: Record<string, string> = {
@@ -776,9 +784,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               'WARNING': 'warning',
               'CRITICAL': 'critical'
             };
-            
+
             const alertType = alertTypeMap[earlyWarning.alert_level] || 'info';
-            
+
             // Create early warning alert
             const earlyWarningAlert: Alert = {
               id: `early-warning-${Date.now()}`,
@@ -789,12 +797,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               date: new Date().toISOString().split('T')[0],
               time: new Date().toTimeString().split(' ')[0].substring(0, 5)
             };
-            
+
             // Add to alerts, avoiding duplicates
             setAlerts(prevAlerts => {
               const existingEarlyWarning = prevAlerts.find(a => a.id.startsWith('early-warning-'));
               if (existingEarlyWarning) {
-                return prevAlerts.map(a => 
+                return prevAlerts.map(a =>
                   a.id.startsWith('early-warning-') ? earlyWarningAlert : a
                 );
               }
@@ -804,7 +812,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         } catch (ewError) {
           console.warn('Early warning service unavailable:', ewError);
         }
-        
+
         // Fetch AQI/pollution data from weather/pollution API (port 8003) or early warning signals
         try {
           // Try weather/pollution API first (direct AQI service)
@@ -813,26 +821,26 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             if (weatherResponse.ok) {
               const weatherData = await weatherResponse.json();
               const aqi = weatherData.aqi || 0;
-              
+
               if (aqi > 100) {
                 const aqiAlert: Alert = {
                   id: `aqi-${Date.now()}`,
                   type: aqi > 200 ? 'critical' : aqi > 150 ? 'warning' : 'info',
                   title: `Air Quality Alert: AQI ${Math.round(aqi)}`,
-                  message: aqi > 200 
+                  message: aqi > 200
                     ? `Very poor air quality (AQI: ${Math.round(aqi)}). Avoid outdoor activities, especially if you have respiratory conditions.`
                     : aqi > 150
-                    ? `Poor air quality (AQI: ${Math.round(aqi)}). Limit outdoor activities and use masks if necessary.`
-                    : `Moderate air quality (AQI: ${Math.round(aqi)}). Sensitive individuals should take precautions.`,
+                      ? `Poor air quality (AQI: ${Math.round(aqi)}). Limit outdoor activities and use masks if necessary.`
+                      : `Moderate air quality (AQI: ${Math.round(aqi)}). Sensitive individuals should take precautions.`,
                   icon: AlertTriangle,
                   date: new Date().toISOString().split('T')[0],
                   time: new Date().toTimeString().split(' ')[0].substring(0, 5)
                 };
-                
+
                 setAlerts(prevAlerts => {
                   const existingAqi = prevAlerts.find(a => a.id.startsWith('aqi-'));
                   if (existingAqi) {
-                    return prevAlerts.map(a => 
+                    return prevAlerts.map(a =>
                       a.id.startsWith('aqi-') ? aqiAlert : a
                     );
                   }
@@ -846,31 +854,31 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             const signalsResponse = await fetch(`http://localhost:5000/api/early-warning/signals/${city}`);
             if (signalsResponse.ok) {
               const signalsData = await signalsResponse.json();
-              
+
               // Check if there's pollution/AQI data in signals
               if (signalsData.signals && signalsData.signals.pollution) {
                 const pollution = signalsData.signals.pollution;
                 const aqi = pollution.aqi || pollution.pm25 || 0;
-                
+
                 if (aqi > 100) {
                   const aqiAlert: Alert = {
                     id: `aqi-${Date.now()}`,
                     type: aqi > 200 ? 'critical' : aqi > 150 ? 'warning' : 'info',
                     title: `Air Quality Alert: AQI ${Math.round(aqi)}`,
-                    message: aqi > 200 
+                    message: aqi > 200
                       ? `Very poor air quality (AQI: ${Math.round(aqi)}). Avoid outdoor activities, especially if you have respiratory conditions.`
                       : aqi > 150
-                      ? `Poor air quality (AQI: ${Math.round(aqi)}). Limit outdoor activities and use masks if necessary.`
-                      : `Moderate air quality (AQI: ${Math.round(aqi)}). Sensitive individuals should take precautions.`,
+                        ? `Poor air quality (AQI: ${Math.round(aqi)}). Limit outdoor activities and use masks if necessary.`
+                        : `Moderate air quality (AQI: ${Math.round(aqi)}). Sensitive individuals should take precautions.`,
                     icon: AlertTriangle,
                     date: new Date().toISOString().split('T')[0],
                     time: new Date().toTimeString().split(' ')[0].substring(0, 5)
                   };
-                  
+
                   setAlerts(prevAlerts => {
                     const existingAqi = prevAlerts.find(a => a.id.startsWith('aqi-'));
                     if (existingAqi) {
-                      return prevAlerts.map(a => 
+                      return prevAlerts.map(a =>
                         a.id.startsWith('aqi-') ? aqiAlert : a
                       );
                     }
@@ -883,26 +891,26 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         } catch (aqiError) {
           console.warn('AQI data unavailable:', aqiError);
         }
-        
+
       } catch (error) {
         console.error('Error fetching alerts:', error);
       }
     };
-    
+
     fetchAlerts();
     // Refresh every 5 minutes
     const interval = setInterval(fetchAlerts, 5 * 60 * 1000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
   // Update alerts when medicines change - generate reminders for pending doses
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    
+
     // Keep non-medicine alerts (including early warning alerts)
     const nonMedicineAlerts = alerts.filter((alert: Alert) => alert.type !== 'reminder' || !alert.medicineId);
-    
+
     // Generate medicine reminder alerts for today's pending doses
     const medicineAlerts: Alert[] = [];
     medicines
@@ -923,7 +931,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           }
         });
       });
-    
+
     // Update alerts with both non-medicine and new medicine alerts
     setAlerts([...nonMedicineAlerts, ...medicineAlerts]);
   }, [medicines]); // Re-run when medicines change
@@ -935,7 +943,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     if (predictions.length === 0) {
       const allPredictions = JSON.parse(localStorage.getItem('allPatientPredictions') || '{}');
       const currentPatientPredictions = allPredictions['currentPatient'];
-      
+
       if (currentPatientPredictions && currentPatientPredictions.length > 0) {
         setPredictions(currentPatientPredictions);
       } else {
@@ -968,13 +976,13 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     const allRecords = JSON.parse(localStorage.getItem('allPatientMedicalRecords') || '{}');
     const currentPatientRecords = allRecords['currentPatient'];
-    
+
     // Only load from localStorage if records exist
     // Otherwise, medical records will be loaded from backend in fetchPatientData
     if (currentPatientRecords && currentPatientRecords.length > 0) {
       setMedicalRecords(currentPatientRecords);
     }
-    
+
     // Show welcome notification with medical records count
     const hasSeenWelcome = sessionStorage.getItem('hasSeenMedicalRecordsWelcome');
     if (!hasSeenWelcome) {
@@ -1021,8 +1029,8 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     const hasSeenMissedNotifications = sessionStorage.getItem('hasSeenMissedNotifications');
     if (!hasSeenMissedNotifications && (appointments.length > 0 || medicines.length > 0 || medicalRecords.length > 0)) {
-      const notifications: Array<{message: string; type: "info" | "success" | "warning" | "error"; icon: any; delay: number}> = [];
-      
+      const notifications: Array<{ message: string; type: "info" | "success" | "warning" | "error"; icon: any; delay: number }> = [];
+
       // Check for upcoming appointments
       const upcomingAppts = appointments.filter(apt => {
         const aptDate = new Date(apt.date);
@@ -1038,7 +1046,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           delay: 1000
         });
       }
-      
+
       // Check for pending medicines
       const pendingMeds = medicines.filter(m => !m.completed && m.reminderEnabled);
       if (pendingMeds.length > 0) {
@@ -1049,7 +1057,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           delay: 2000
         });
       }
-      
+
       // Check for medical records
       if (medicalRecords.length > 0) {
         notifications.push({
@@ -1073,7 +1081,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   // Simulate real-time notifications
   useEffect(() => {
     const notificationIntervals: NodeJS.Timeout[] = [];
-    
+
     // Check for appointment confirmations (based on actual appointments)
     const appointmentInterval = setInterval(() => {
       const confirmedAppts = appointments.filter(apt => apt.status === 'accepted');
@@ -1086,7 +1094,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         );
       }
     }, 30000); // Every 30 seconds
-    
+
     // Medicine reminders based on actual medicines
     const medicineInterval = setInterval(() => {
       if (medicines.length > 0 && Math.random() > 0.8) {
@@ -1101,7 +1109,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         }
       }
     }, 45000); // Every 45 seconds
-    
+
     // Simulate general alerts
     const alertInterval = setInterval(() => {
       if (Math.random() > 0.8) {
@@ -1112,9 +1120,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         );
       }
     }, 60000); // Every 60 seconds
-    
+
     notificationIntervals.push(appointmentInterval, medicineInterval, alertInterval);
-    
+
     return () => {
       notificationIntervals.forEach(interval => clearInterval(interval));
     };
@@ -1160,7 +1168,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     const fetchHospitals = async () => {
       try {
         setIsLoadingHospitals(true);
-        
+
         // Get patient ID
         let patientId = 'demo-patient-id';
         try {
@@ -1202,7 +1210,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         }));
 
         setNearestHospitals(formattedHospitals);
-        
+
         // Auto-select the first (nearest) hospital
         if (formattedHospitals.length > 0) {
           setSelectedHospitalForMap(formattedHospitals[0]);
@@ -1228,7 +1236,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         const end: [number, number] = [selectedHospitalForMap.lat, selectedHospitalForMap.lng];
 
         const route = await getRoute(start, end, 'driving');
-        
+
         if (route) {
           setHospitalRoutes({
             'driving-car': route,
@@ -1248,7 +1256,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       // Check if we need to fetch the route
       const currentRoute = hospitalRoutes['driving-car'];
       const needsRoute = !currentRoute || !currentRoute.coords || currentRoute.coords.length === 0;
-      
+
       if (needsRoute) {
         const fetchRouteForBooking = async () => {
           try {
@@ -1293,16 +1301,16 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       }
       const user = JSON.parse(userStr);
       const patientId = user.patientId || 'demo-patient-id';
-      
+
       const response = await toggleMedicineReminder(patientId, id);
-      
+
       // Update local state with the response from backend
       setMedicines(
         medicines.map((med: Medicine) =>
           med.id === id ? { ...med, reminderEnabled: response.reminderEnabled } : med
         )
       );
-      
+
       toast.success("Reminder status updated");
     } catch (error) {
       console.error('Error toggling reminder:', error);
@@ -1320,14 +1328,14 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       }
       const user = JSON.parse(userStr);
       const patientId = user.patientId || 'demo-patient-id';
-      
+
       const updatedMedicine = await markMedicineAsTaken(patientId, medicineId, date, time);
-      
+
       // Update local state with the response from backend
-      setMedicines(medicines.map((med: Medicine) => 
+      setMedicines(medicines.map((med: Medicine) =>
         med.id === medicineId ? updatedMedicine : med
       ));
-      
+
       toast.success("Medicine marked as taken");
     } catch (error) {
       console.error('Error marking medicine as taken:', error);
@@ -1372,16 +1380,16 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const handlePrescriptionUpload = (e: any) => {
     const file = e.target.files?.[0];
     if (file) {
-      const loadingMessage = uploadType === "prescription" 
-        ? "Analyzing prescription..." 
+      const loadingMessage = uploadType === "prescription"
+        ? "Analyzing prescription..."
         : `Analyzing ${uploadType}...`;
-      
+
       toast.loading(loadingMessage);
-      
+
       // Mock AI analysis
       setTimeout(() => {
         toast.dismiss();
-        
+
         if (uploadType === "prescription") {
           // Extracted medicines from prescription (would come from backend OCR/AI)
           const mockExtractedMedicines = [
@@ -1407,7 +1415,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               times: ["Morning"]
             }
           ];
-          
+
           setExtractedMedicines(mockExtractedMedicines);
           setShowUploadModal(false);
           setShowPrescriptionConfirm(true);
@@ -1416,7 +1424,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           // For reports, xrays, and other medical documents
           const fileUrl = URL.createObjectURL(file);
           const summary = generateAISummary(uploadType, file.name);
-          
+
           const newRecord: MedicalRecord = {
             id: `record-${Date.now()}`,
             type: uploadType,
@@ -1425,7 +1433,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
             uploadDate: new Date().toISOString(),
             summary: summary
           };
-          
+
           setMedicalRecords([...medicalRecords, newRecord]);
           setShowUploadModal(false);
           toast.success(`${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} analyzed successfully!`);
@@ -1437,15 +1445,15 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const handleConfirmExtractedMedicines = (confirmedMedicines: typeof extractedMedicines) => {
     const today = new Date();
     const updatedMedicines = [...medicines];
-    
+
     confirmedMedicines.forEach((extracted: any) => {
       // Check if medicine already exists
       const existingIndex = updatedMedicines.findIndex(
         (m: Medicine) => m.name.toLowerCase() === extracted.name.toLowerCase()
       );
-      
+
       const durationDays = parseInt(extracted.duration);
-      
+
       if (existingIndex !== -1) {
         // Update existing medicine - extend duration
         const existing = updatedMedicines[existingIndex];
@@ -1482,7 +1490,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         updatedMedicines.push(newMedicine);
       }
     });
-    
+
     setMedicines(updatedMedicines);
     setShowPrescriptionConfirm(false);
     setExtractedMedicines([]);
@@ -1491,33 +1499,33 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
 
   const handleBookAppointment = async (e: any) => {
     e.preventDefault();
-    
+
     // Get available doctors (could be from backend or generated)
     const availableDoctors = getAvailableDoctors();
     const doctor = availableDoctors.find(d => d.id === selectedDoctor);
-    
+
     // Find hospital from nearestHospitals first, then fallback to hospitals
-    const hospital = nearestHospitals.find(h => h.id === selectedHospital) || 
-                     hospitals.find(h => h.id === selectedHospital) ||
-                     selectedHospitalForBooking;
-    
+    const hospital = nearestHospitals.find(h => h.id === selectedHospital) ||
+      hospitals.find(h => h.id === selectedHospital) ||
+      selectedHospitalForBooking;
+
     if (!doctor || !hospital) return;
-    
+
     // For emergency, skip date/time validation
     if (selectedAppointmentType !== "emergency" && !selectedSlot) return;
-    
+
     try {
       // Get patient ID
       const patientId = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).patientId : 'demo-patient-id';
-      
+
       // Prepare appointment data for backend
-      const appointmentDate = selectedAppointmentType === "emergency" 
-        ? new Date().toISOString().split('T')[0] 
+      const appointmentDate = selectedAppointmentType === "emergency"
+        ? new Date().toISOString().split('T')[0]
         : selectedDate;
-      const appointmentTime = selectedAppointmentType === "emergency" 
-        ? "Immediate" 
+      const appointmentTime = selectedAppointmentType === "emergency"
+        ? "Immediate"
         : selectedSlot;
-      
+
       // Save appointment to database
       const savedAppointment = await createAppointment(patientId, {
         hospitalId: hospital.id?.match(/^[0-9a-fA-F]{24}$/) ? hospital.id : undefined, // Only if it's a MongoDB ObjectId
@@ -1532,9 +1540,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         type: selectedAppointmentType as "checkup" | "followup" | "emergency",
         reason: `${doctor.name} - ${doctor.specialty}`
       });
-      
+
       console.log('Appointment saved to database:', savedAppointment);
-      
+
       // Create frontend appointment object for local state
       const newAppointment: Appointment = {
         id: savedAppointment._id?.toString() || savedAppointment.id || String(appointments.length + 1),
@@ -1546,11 +1554,11 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         type: selectedAppointmentType as "checkup" | "followup" | "emergency",
         status: savedAppointment.status || "pending",
       };
-      
+
       // Add new appointment and sort by nearest date first
       const updatedAppointments = sortAppointmentsByDate([...appointments, newAppointment]);
       setAppointments(updatedAppointments);
-      
+
       toast.success("Appointment booked successfully and saved to hospital database!");
     } catch (error) {
       console.error('Error saving appointment to database:', error);
@@ -1569,12 +1577,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       setAppointments(updatedAppointments);
       toast.error("Appointment added locally, but failed to save to database. Please try again.");
     }
-    
+
     // Get the appointment date for expenses (same logic as above)
-    const appointmentDate = selectedAppointmentType === "emergency" 
-      ? new Date().toISOString().split('T')[0] 
+    const appointmentDate = selectedAppointmentType === "emergency"
+      ? new Date().toISOString().split('T')[0]
       : selectedDate;
-    
+
     // Add to expenses (store as USD number for dynamic conversion)
     const consultationFee = selectedAppointmentType === "emergency" ? 150 : 80;
     const newExpense = {
@@ -1584,20 +1592,20 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       category: "Consultation"
     };
     setExpenses([newExpense, ...expenses]);
-    
+
     // Set the booked hospital for route display
     // Priority: nearestHospitals -> selectedHospitalForBooking -> hospitals
-    const hospitalForRoute = nearestHospitals.find(h => h.id === selectedHospital) || 
-                             selectedHospitalForBooking || 
-                             hospitals.find(h => h.id === selectedHospital);
-    
+    const hospitalForRoute = nearestHospitals.find(h => h.id === selectedHospital) ||
+      selectedHospitalForBooking ||
+      hospitals.find(h => h.id === selectedHospital);
+
     if (hospitalForRoute && userLocation) {
       setBookedHospital(hospitalForRoute);
       setSelectedHospitalForMap(hospitalForRoute);
-      
+
       // Always show the route modal after booking first
       setShowRouteAfterBooking(true);
-      
+
       // Check if hospital has coordinates (from nearestHospitals)
       if (hospitalForRoute.lat && hospitalForRoute.lng) {
         // Fetch route to the booked hospital
@@ -1627,7 +1635,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         console.warn('Hospital coordinates not available:', hospitalForRoute);
       }
     }
-    
+
     setShowBookAppointmentModal(false);
     // Reset form
     setSelectedHospital("");
@@ -1642,10 +1650,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   const handleCallAI = async () => {
     try {
       setIsCallingAI(true);
-      
+
       // Use your phone number directly
       const patientPhone = "+918433550728";
-      
+
       // Format phone number - ensure it starts with + for E.164 format
       let formattedPhone = patientPhone.trim();
       if (!formattedPhone.startsWith('+')) {
@@ -1677,7 +1685,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       });
 
       const data = await response.json();
-      
+
       if (data.success && data.call) {
         toast.success(`📞 Call initiated! Our AI assistant will call you at ${formattedPhone} shortly.`);
         console.log('Call created successfully:', data.call.call_id);
@@ -1698,20 +1706,20 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     const firstNames = ["Dr. Priya", "Dr. Rajesh", "Dr. Anjali", "Dr. Vikram", "Dr. Meera", "Dr. Arjun", "Dr. Kavita", "Dr. Rohan", "Dr. Sneha", "Dr. Aditya"];
     const lastNames = ["Sharma", "Patel", "Kumar", "Singh", "Desai", "Reddy", "Malhotra", "Agarwal", "Mehta", "Gupta"];
     const specializations = [
-      "Cardiologist", "General Physician", "Pediatrician", "Dermatologist", 
-      "Orthopedic", "Neurologist", "Gynecologist", "ENT Specialist", 
+      "Cardiologist", "General Physician", "Pediatrician", "Dermatologist",
+      "Orthopedic", "Neurologist", "Gynecologist", "ENT Specialist",
       "Ophthalmologist", "Psychiatrist", "Pulmonologist", "Gastroenterologist"
     ];
 
     // Use hospital ID as seed for consistent randomization per hospital
     const seed = hospitalId.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
     const randomDoctors = [];
-    
+
     for (let i = 0; i < 4; i++) {
       const nameIndex = (seed + i * 13) % firstNames.length;
       const lastNameIndex = (seed + i * 17) % lastNames.length;
       const specializationIndex = (seed + i * 7) % specializations.length;
-      
+
       const doctor = {
         id: `doctor-${hospitalId}-${i}`,
         name: `${firstNames[nameIndex]} ${lastNames[lastNameIndex]}`,
@@ -1720,28 +1728,28 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       };
       randomDoctors.push(doctor);
     }
-    
+
     return randomDoctors;
   };
 
   const getAvailableDoctors = () => {
     if (!selectedHospital) return [];
-    
+
     // Get hospital ID (could be from nearestHospitals or hospitals list)
     const hospitalId = selectedHospital;
-    
+
     // First, try to use real doctors from the API
     if (doctors && doctors.length > 0) {
       // Filter doctors that match the selected hospital (if hospitalId is a MongoDB ObjectId)
       // Or include all doctors if hospitalId is not a MongoDB ObjectId (external hospitals)
       const hospitalIdStr = typeof hospitalId === 'string' ? hospitalId : hospitalId.toString();
       const isMongoObjectId = /^[0-9a-fA-F]{24}$/.test(hospitalIdStr);
-      
+
       let availableDoctors = [];
-      
+
       if (isMongoObjectId) {
         // For registered hospitals, filter doctors by hospitalId
-        availableDoctors = doctors.filter((d: any) => 
+        availableDoctors = doctors.filter((d: any) =>
           d.hospitalId === hospitalIdStr || !d.hospitalId
         );
       } else {
@@ -1749,16 +1757,16 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         // This allows patients to book with any doctor regardless of hospital
         availableDoctors = doctors;
       }
-      
+
       // Always include Dr. Sarah Mitchell if she exists in the doctors list
-      const sarahMitchell = doctors.find((d: any) => 
+      const sarahMitchell = doctors.find((d: any) =>
         d.name && d.name.toLowerCase().includes('sarah mitchell')
       );
-      
+
       if (sarahMitchell && !availableDoctors.find((d: any) => d.id === sarahMitchell.id)) {
         availableDoctors.push(sarahMitchell);
       }
-      
+
       // If we have real doctors, use them (at least 1, up to 4)
       if (availableDoctors.length > 0) {
         // Return up to 4 doctors, prioritizing Dr. Sarah Mitchell
@@ -1769,7 +1777,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           if (!aIsSarah && bIsSarah) return 1;
           return 0;
         });
-        
+
         return sortedDoctors.slice(0, 4).map((d: any) => ({
           id: d.id,
           name: d.name,
@@ -1778,17 +1786,17 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         }));
       }
     }
-    
+
     // Fallback: generate random doctors if no real doctors found
     // But try to include Dr. Sarah Mitchell in the random list if she exists
     const randomDoctors = generateRandomDoctors(hospitalId);
-    
+
     // Check if Dr. Sarah Mitchell exists in the doctors list and add her
     if (doctors && doctors.length > 0) {
-      const sarahMitchell = doctors.find((d: any) => 
+      const sarahMitchell = doctors.find((d: any) =>
         d.name && d.name.toLowerCase().includes('sarah mitchell')
       );
-      
+
       if (sarahMitchell) {
         // Replace first random doctor with Dr. Sarah Mitchell
         randomDoctors[0] = {
@@ -1799,7 +1807,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
         };
       }
     }
-    
+
     return randomDoctors;
   };
 
@@ -1819,17 +1827,17 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     date.setHours(0, 0, 0, 0);
-    
+
     if (date.getTime() === today.getTime()) {
       return "Today";
     }
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     if (date.getTime() === tomorrow.getTime()) {
       return "Tomorrow";
     }
-    
+
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
   };
@@ -1837,35 +1845,35 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
   // Disease Prediction Functions
   const handlePredictionSubmit = async () => {
     if (!selectedPredictionType) return;
-    
+
     try {
       // Get patient ID
       const patientId = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).patientId : 'demo-patient-id';
-      
+
       // Show loading state
       toast.info('Running ML prediction...');
-      
+
       // Call backend API to get ML prediction
       const newPrediction = await createPrediction(patientId, selectedPredictionType, predictionInputs);
-      
+
       // Add prediction to state
       setPredictions([newPrediction, ...predictions]);
-      
+
       // Save to localStorage
       const allPredictions = JSON.parse(localStorage.getItem('allPatientPredictions') || '{}');
       const currentPatientPredictions = allPredictions['currentPatient'] || [];
       allPredictions['currentPatient'] = [newPrediction, ...currentPatientPredictions];
       localStorage.setItem('allPatientPredictions', JSON.stringify(allPredictions));
-      
+
       // Close modal and reset
       setShowPredictionModal(false);
       setSelectedPredictionType(null);
       setPredictionInputs({});
-      
+
       // Show success message with risk level
       const riskEmoji = newPrediction.risk === 'high' ? '🔴' : newPrediction.risk === 'medium' ? '🟡' : '🟢';
       toast.success(`${riskEmoji} ${selectedPredictionType.charAt(0).toUpperCase() + selectedPredictionType.slice(1)} prediction: ${newPrediction.risk.toUpperCase()} risk (${newPrediction.probability}%)`);
-      
+
       // Refresh patient data to get updated predictions from backend
       const patientIdForRefresh = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).patientId : 'demo-patient-id';
       const updatedData = await getPatientData(patientIdForRefresh);
@@ -1946,11 +1954,11 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       setShowPrescriptionUploadForCart(true);
       return;
     }
-    
+
     const existingItem = cart.find((item: any) => item.medicine.id === medicine.id);
     if (existingItem) {
-      setCart(cart.map((item: any) => 
-        item.medicine.id === medicine.id 
+      setCart(cart.map((item: any) =>
+        item.medicine.id === medicine.id
           ? { ...item, quantity: item.quantity + 1 }
           : item
       ));
@@ -1982,8 +1990,8 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           // For regular Add to Cart
           const existingItem = cart.find((item: any) => item.medicine.id === pendingCartItem.id);
           if (existingItem) {
-            setCart(cart.map((item: any) => 
-              item.medicine.id === pendingCartItem.id 
+            setCart(cart.map((item: any) =>
+              item.medicine.id === pendingCartItem.id
                 ? { ...item, quantity: item.quantity + 1, prescriptionUploaded: true }
                 : item
             ));
@@ -2024,7 +2032,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
     const consultationTotal = expenses.filter((e: any) => e.category === 'Consultation').reduce((sum: number, e: any) => sum + e.amount, 0);
     const testTotal = expenses.filter((e: any) => e.category === 'Test').reduce((sum: number, e: any) => sum + e.amount, 0);
     const total = expenses.reduce((sum: number, e: any) => sum + e.amount, 0);
-    
+
     return { medicineTotal, consultationTotal, testTotal, total };
   };
 
@@ -2037,9 +2045,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       date: new Date().toISOString().split('T')[0],
       status: "Processing"
     };
-    
+
     setOrders([newOrder, ...orders]);
-    
+
     // Create delivery tracking
     const estimatedDate = new Date();
     estimatedDate.setDate(estimatedDate.getDate() + 2);
@@ -2068,7 +2076,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       ]
     };
     setActiveDeliveries([newDelivery, ...activeDeliveries]);
-    
+
     // Update expenses (store as USD number for dynamic conversion)
     const newExpense = {
       name: `Medicine Purchase (${cart.length} items)`,
@@ -2077,7 +2085,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
       category: "Medicine"
     };
     setExpenses([newExpense, ...expenses]);
-    
+
     setCart([]);
     setShowCheckout(false);
     setShowCart(false);
@@ -2087,22 +2095,22 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
 
   // Filter medicines based on search and filters
   const filteredMedicines = shopMedicines.filter(medicine => {
-    const matchesSearch = medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                         medicine.genericName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         medicine.category.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = medicine.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      medicine.genericName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      medicine.category.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = selectedCategory === "all" || medicine.category === selectedCategory;
-    const matchesPrescription = prescriptionRequiredFilter === "all" || 
-                               (prescriptionRequiredFilter === "prescription" && medicine.prescriptionRequired) ||
-                               (prescriptionRequiredFilter === "otc" && !medicine.prescriptionRequired);
+    const matchesPrescription = prescriptionRequiredFilter === "all" ||
+      (prescriptionRequiredFilter === "prescription" && medicine.prescriptionRequired) ||
+      (prescriptionRequiredFilter === "otc" && !medicine.prescriptionRequired);
     return matchesSearch && matchesCategory && matchesPrescription;
   });
 
   const buyActiveMedicine = (medicineName: string) => {
-    const shopMedicine = shopMedicines.find(m => 
+    const shopMedicine = shopMedicines.find(m =>
       m.name.toLowerCase() === medicineName.toLowerCase() ||
       m.genericName.toLowerCase() === medicineName.toLowerCase()
     );
-    
+
     if (shopMedicine) {
       setSelectedShopMedicine(shopMedicine);
       setShowMedicineDetail(true);
@@ -2149,52 +2157,48 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
           <nav className="hidden md:flex items-center gap-6">
             <button
               onClick={() => setActiveTab("dashboard")}
-              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${
-                activeTab === "dashboard" 
-                  ? isDarkMode 
-                    ? 'text-white' 
+              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${activeTab === "dashboard"
+                  ? isDarkMode
+                    ? 'text-white'
                     : 'text-black'
                   : `${textTertiary} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`
-              }`}
+                }`}
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600", fontSize: "0.875rem" }}
             >
               Dashboard
             </button>
             <button
               onClick={() => setActiveTab("prescriptions")}
-              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${
-                activeTab === "prescriptions" 
-                  ? isDarkMode 
-                    ? 'text-white' 
+              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${activeTab === "prescriptions"
+                  ? isDarkMode
+                    ? 'text-white'
                     : 'text-black'
                   : `${textTertiary} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`
-              }`}
+                }`}
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600", fontSize: "0.875rem" }}
             >
               Prescriptions
             </button>
             <button
               onClick={() => setActiveTab("profile")}
-              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${
-                activeTab === "profile" 
-                  ? isDarkMode 
-                    ? 'text-white' 
+              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${activeTab === "profile"
+                  ? isDarkMode
+                    ? 'text-white'
                     : 'text-black'
                   : `${textTertiary} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`
-              }`}
+                }`}
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600", fontSize: "0.875rem" }}
             >
               Profile
             </button>
             <button
               onClick={() => setActiveTab("buyMedicines")}
-              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${
-                activeTab === "buyMedicines" 
-                  ? isDarkMode 
-                    ? 'text-white' 
+              className={`text-sm uppercase tracking-wide transition-all px-3 py-1.5 rounded-lg ${activeTab === "buyMedicines"
+                  ? isDarkMode
+                    ? 'text-white'
                     : 'text-black'
                   : `${textTertiary} ${isDarkMode ? 'hover:text-white' : 'hover:text-black'}`
-              }`}
+                }`}
               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600", fontSize: "0.875rem" }}
             >
               Buy Medicines
@@ -2406,212 +2410,198 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
                 className="fixed right-0 top-0 h-full w-1/3 min-w-[280px] max-w-[400px] bg-white shadow-2xl z-50 md:hidden overflow-y-auto"
               >
-              <div className="p-4 space-y-1">
-                <button
-                  onClick={() => {
-                    setActiveTab("dashboard");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${
-                    activeTab === "dashboard" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  Dashboard
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("prescriptions");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${
-                    activeTab === "prescriptions" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  Prescriptions
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("notifications");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors relative ${
-                    activeTab === "notifications" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  Notifications
-                  {alerts.length > 0 && (
-                    <span className="absolute top-2 right-2 w-5 h-5 bg-yellow-500 text-white text-xs rounded-full flex items-center justify-center" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                      {alerts.length}
-                    </span>
-                  )}
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("profile");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${
-                    activeTab === "profile" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  Profile
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("buyMedicines");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "buyMedicines" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <ShoppingCart className="w-4 h-4" />
-                  <span>Buy Medicines</span>
-                  {cart.length > 0 && (
-                    <span className="ml-auto bg-black text-white px-2 py-0.5 rounded-full text-xs">
-                      {cart.length}
-                    </span>
-                  )}
-                </button>
-                <div className="h-px bg-gray-200 my-2"></div>
-                <button
-                  onClick={() => {
-                    setActiveTab("vitals");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "vitals" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Activity className="w-4 h-4" />
-                  <span>Vitals Tracking</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("appointments");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "appointments" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>Appointments</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("hospitals");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "hospitals" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <MapPin className="w-4 h-4" />
-                  <span>Nearby Hospitals</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("documents");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "documents" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Documents</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("family");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "family" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Users className="w-4 h-4" />
-                  <span>Family Members</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("expenses");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "expenses" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <DollarSign className="w-4 h-4" />
-                  <span>Expenses</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("predictions");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "predictions" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Activity className="w-4 h-4" />
-                  <span>Health Predictions</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveTab("medicalRecords");
-                    setShowMobileMenu(false);
-                  }}
-                  className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${
-                    activeTab === "medicalRecords" ? "bg-black text-white" : "hover:bg-gray-50"
-                  }`}
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Folder className="w-4 h-4" />
-                  <span>Medical Records</span>
-                  {medicalRecords.length > 0 && (
-                    <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${
-                      activeTab === "medicalRecords" ? "bg-white text-black" : "bg-black text-white"
-                    }`}>
-                      {medicalRecords.length}
-                    </span>
-                  )}
-                </button>
-                <div className="h-px bg-gray-200 my-2"></div>
-                <button
-                  className="w-full px-4 py-3 text-left text-sm rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-3"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <Settings className="w-4 h-4" />
-                  <span>Settings</span>
-                </button>
-                <div className="h-px bg-gray-200 my-2"></div>
-                
-                <button
-                  onClick={() => {
-                    onLogout();
-                    setShowMobileMenu(false);
-                  }}
-                  className="w-full px-4 py-3 text-left text-sm rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-3 text-gray-700"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
-                </button>
-              </div>
+                <div className="p-4 space-y-1">
+                  <button
+                    onClick={() => {
+                      setActiveTab("dashboard");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${activeTab === "dashboard" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("prescriptions");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${activeTab === "prescriptions" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    Prescriptions
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("notifications");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors relative ${activeTab === "notifications" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    Notifications
+                    {alerts.length > 0 && (
+                      <span className="absolute top-2 right-2 w-5 h-5 bg-yellow-500 text-white text-xs rounded-full flex items-center justify-center" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
+                        {alerts.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("profile");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors ${activeTab === "profile" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    Profile
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("buyMedicines");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "buyMedicines" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span>Buy Medicines</span>
+                    {cart.length > 0 && (
+                      <span className="ml-auto bg-black text-white px-2 py-0.5 rounded-full text-xs">
+                        {cart.length}
+                      </span>
+                    )}
+                  </button>
+                  <div className="h-px bg-gray-200 my-2"></div>
+                  <button
+                    onClick={() => {
+                      setActiveTab("vitals");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "vitals" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Activity className="w-4 h-4" />
+                    <span>Vitals Tracking</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("appointments");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "appointments" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Calendar className="w-4 h-4" />
+                    <span>Appointments</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("hospitals");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "hospitals" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <MapPin className="w-4 h-4" />
+                    <span>Nearby Hospitals</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("documents");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "documents" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Documents</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("family");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "family" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Family Members</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("expenses");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "expenses" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    <span>Expenses</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("predictions");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "predictions" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Activity className="w-4 h-4" />
+                    <span>Health Predictions</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab("medicalRecords");
+                      setShowMobileMenu(false);
+                    }}
+                    className={`w-full px-4 py-3 text-left text-sm rounded-lg transition-colors flex items-center gap-3 ${activeTab === "medicalRecords" ? "bg-black text-white" : "hover:bg-gray-50"
+                      }`}
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Folder className="w-4 h-4" />
+                    <span>Medical Records</span>
+                    {medicalRecords.length > 0 && (
+                      <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${activeTab === "medicalRecords" ? "bg-white text-black" : "bg-black text-white"
+                        }`}>
+                        {medicalRecords.length}
+                      </span>
+                    )}
+                  </button>
+                  <div className="h-px bg-gray-200 my-2"></div>
+                  <button
+                    className="w-full px-4 py-3 text-left text-sm rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-3"
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <Settings className="w-4 h-4" />
+                    <span>Settings</span>
+                  </button>
+                  <div className="h-px bg-gray-200 my-2"></div>
+
+                  <button
+                    onClick={() => {
+                      onLogout();
+                      setShowMobileMenu(false);
+                    }}
+                    className="w-full px-4 py-3 text-left text-sm rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-3 text-gray-700"
+                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Logout</span>
+                  </button>
+                </div>
               </motion.div>
             </>
           )}
@@ -2646,12 +2636,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     } catch (e) {
                       console.log('Error reading user from localStorage:', e);
                     }
-                    
+
                     // Fallback to profileData.fullName if it's not "John Doe"
                     if (profileData && profileData.fullName && profileData.fullName.trim() && profileData.fullName !== 'John Doe') {
                       return profileData.fullName;
                     }
-                    
+
                     // If profileData has "John Doe", try localStorage again as it's more reliable
                     try {
                       const userStr = localStorage.getItem('user');
@@ -2664,12 +2654,41 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     } catch (e) {
                       console.log('Error reading user from localStorage:', e);
                     }
-                    
+
                     return 'Patient';
                   })()}
                 </h2>
                 <p className="text-gray-500 text-sm">Here's your health overview for today</p>
               </div>
+
+              {/* ML Prediction Alert */}
+              {mlPrediction && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 rounded-2xl bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-100 shadow-sm"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="p-2 bg-white rounded-xl shadow-sm text-teal-600">
+                      <Wind className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-bold text-teal-900 flex items-center gap-2">
+                          AI Health Forecast
+                          <span className="text-xs px-2 py-0.5 bg-teal-200 text-teal-800 rounded-full">LIVE</span>
+                        </h3>
+                        <span className="text-xs text-teal-600 font-medium">
+                          AQI: <span className={`font-bold ${mlPrediction.aqi > 150 ? 'text-red-600' : 'text-teal-900'}`}>{mlPrediction.aqi}</span>
+                        </span>
+                      </div>
+                      <p className="text-sm text-teal-800 mb-2 leading-relaxed">
+                        {mlPrediction.patient_dashboard}
+                      </p>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
               {/* Quick Actions */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -2773,11 +2792,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           </div>
                           <button
                             onClick={() => toggleReminder(medicine.id)}
-                            className={`px-1 py-1.5 rounded-lg transition-colors ${
-                              medicine.reminderEnabled
+                            className={`px-1 py-1.5 rounded-lg transition-colors ${medicine.reminderEnabled
                                 ? isDarkMode ? "bg-white text-black" : "bg-black text-white"
                                 : isDarkMode ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-400"
-                            }`}
+                              }`}
                           >
                             {medicine.reminderEnabled ? (
                               <Bell className="w-3.5 h-3.5" />
@@ -2798,13 +2816,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-600">Days Remaining:</span>
-                            <span className={`font-medium px-2 py-1 rounded-lg ${
-                              medicine.remainingDays <= 3 
-                                ? 'bg-red-100 text-red-700' 
-                                : medicine.remainingDays <= 7 
-                                ? 'bg-yellow-100 text-yellow-700' 
-                                : 'bg-green-100 text-green-700'
-                            }`}>{medicine.remainingDays} days</span>
+                            <span className={`font-medium px-2 py-1 rounded-lg ${medicine.remainingDays <= 3
+                                ? 'bg-red-100 text-red-700'
+                                : medicine.remainingDays <= 7
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : 'bg-green-100 text-green-700'
+                              }`}>{medicine.remainingDays} days</span>
                           </div>
                         </div>
 
@@ -2841,27 +2858,25 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       transition={{ delay: index * 0.1 }}
                       className={`${cardBg} rounded-2xl p-4 text-center`}
                     >
-                      <vital.icon className={`w-8 h-8 mx-auto mb-2 ${
-                        vital.type === "Heart Rate" ? "text-red-500" :
-                        vital.type === "Temperature" ? "text-yellow-500" :
-                        vital.type === "Weight" ? "text-purple-500" :
-                        vital.type === "Blood Sugar" ? "text-green-500" :
-                        vital.type === "Blood Pressure" ? "text-blue-500" :
-                        textPrimary
-                      }`} />
+                      <vital.icon className={`w-8 h-8 mx-auto mb-2 ${vital.type === "Heart Rate" ? "text-red-500" :
+                          vital.type === "Temperature" ? "text-yellow-500" :
+                            vital.type === "Weight" ? "text-purple-500" :
+                              vital.type === "Blood Sugar" ? "text-green-500" :
+                                vital.type === "Blood Pressure" ? "text-blue-500" :
+                                  textPrimary
+                        }`} />
                       <p className={`text-xs mb-1 ${textTertiary}`}>{vital.type}</p>
                       <p className={`text-lg font-semibold ${textPrimary}`}>
                         {vital.value}
                         <span className={`text-xs ml-1 ${textTertiary}`}>{vital.unit}</span>
                       </p>
                       <span
-                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs ${
-                          vital.status === "normal"
+                        className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs ${vital.status === "normal"
                             ? "bg-green-100 text-green-700"
                             : vital.status === "warning"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
+                              ? "bg-yellow-100 text-yellow-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
                       >
                         {vital.status}
                       </span>
@@ -2897,25 +2912,23 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           </div>
                           <div className="flex flex-col items-end gap-1">
                             <span
-                              className={`px-2 py-1 rounded-lg text-xs uppercase ${
-                                apt.type === "emergency"
+                              className={`px-2 py-1 rounded-lg text-xs uppercase ${apt.type === "emergency"
                                   ? "bg-red-100 text-red-700"
                                   : apt.type === "followup"
-                                  ? "bg-blue-100 text-blue-700"
-                                  : "bg-green-100 text-green-700"
-                              }`}
+                                    ? "bg-blue-100 text-blue-700"
+                                    : "bg-green-100 text-green-700"
+                                }`}
                             >
                               {apt.type}
                             </span>
                             {apt.status && (
                               <span
-                                className={`px-2 py-1 rounded-lg text-xs uppercase ${
-                                  apt.status === "accepted"
+                                className={`px-2 py-1 rounded-lg text-xs uppercase ${apt.status === "accepted"
                                     ? "bg-green-100 text-green-700"
                                     : apt.status === "rejected"
-                                    ? "bg-red-100 text-red-700"
-                                    : "bg-yellow-100 text-yellow-700"
-                                }`}
+                                      ? "bg-red-100 text-red-700"
+                                      : "bg-yellow-100 text-yellow-700"
+                                  }`}
                                 style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                               >
                                 {apt.status}
@@ -3078,10 +3091,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               {/* Today's Doses */}
               {(() => {
                 const today = new Date().toISOString().split('T')[0];
-                
+
                 const todaysDoses = medicines
                   .filter(m => !m.completed)
-                  .flatMap(med => 
+                  .flatMap(med =>
                     med.times.map(time => ({
                       medicine: med,
                       time: time,
@@ -3135,107 +3148,103 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   })
                   .concat(medicines.filter(m => m.completed))
                   .map((medicine) => (
-                  <motion.div
-                    key={medicine.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className={`rounded-2xl p-6 ${
-                      medicine.completed
-                        ? isDarkMode ? "bg-gray-800" : "bg-gray-100"
-                        : bgPrimary
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
-                          medicine.completed ? isDarkMode ? "bg-gray-600" : "bg-gray-700" : isDarkMode ? "bg-white" : "bg-black"
-                        }`}>
-                          {medicine.completed ? (
-                            <CheckCircle className={`w-7 h-7 ${isDarkMode ? 'text-black' : 'text-white'}`} />
-                          ) : (
-                            <Pill className={`w-7 h-7 ${isDarkMode ? 'text-black' : 'text-white'}`} />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <h3 className={`text-xl font-semibold ${textPrimary}`}>{medicine.name}</h3>
-                            {medicine.completed && (
-                              <span className={`px-3 py-1 rounded-full text-xs uppercase tracking-wide ${isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-700 text-white'}`}>
-                                Completed
-                              </span>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                            <div>
-                              <p className={textTertiary}>Dosage</p>
-                              <p className={`font-medium ${textPrimary}`}>{medicine.dosage}</p>
-                            </div>
-                            <div>
-                              <p className={textTertiary}>Frequency</p>
-                              <p className={`font-medium ${textPrimary}`}>{medicine.frequency}</p>
-                            </div>
-                            <div>
-                              <p className={textTertiary}>Duration</p>
-                              <p className={`font-medium ${textPrimary}`}>{medicine.duration}</p>
-                            </div>
-                            <div>
-                              <p className={textTertiary}>Days Left</p>
-                              <p className={`font-medium px-2 py-1 rounded-lg inline-block ${
-                                medicine.remainingDays <= 3 
-                                  ? 'bg-red-100 text-red-700' 
-                                  : medicine.remainingDays <= 7 
-                                  ? 'bg-yellow-100 text-yellow-700' 
-                                  : 'bg-green-100 text-green-700'
-                              }`}>{medicine.remainingDays}</p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        {!medicine.completed && (
-                          <button
-                            onClick={() => toggleReminder(medicine.id)}
-                            className={`px-1.5 py-2 rounded-lg transition-colors ${
-                              medicine.reminderEnabled
-                                ? isDarkMode ? "bg-white text-black" : "bg-black text-white"
-                                : isDarkMode ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-400"
-                            }`}
-                          >
-                            {medicine.reminderEnabled ? (
-                              <Bell className="w-4 h-4" />
+                    <motion.div
+                      key={medicine.id}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className={`rounded-2xl p-6 ${medicine.completed
+                          ? isDarkMode ? "bg-gray-800" : "bg-gray-100"
+                          : bgPrimary
+                        }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-4 flex-1">
+                          <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${medicine.completed ? isDarkMode ? "bg-gray-600" : "bg-gray-700" : isDarkMode ? "bg-white" : "bg-black"
+                            }`}>
+                            {medicine.completed ? (
+                              <CheckCircle className={`w-7 h-7 ${isDarkMode ? 'text-black' : 'text-white'}`} />
                             ) : (
-                              <BellOff className="w-4 h-4" />
+                              <Pill className={`w-7 h-7 ${isDarkMode ? 'text-black' : 'text-white'}`} />
                             )}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            const shopMedicine = shopMedicines.find(m => 
-                              m.name.toLowerCase() === medicine.name.toLowerCase() ||
-                              m.genericName.toLowerCase() === medicine.name.toLowerCase()
-                            );
-                            if (shopMedicine) {
-                              if (shopMedicine.requiresPrescription) {
-                                setIsBuyNow(true);
-                                setPendingCartItem(shopMedicine);
-                                setShowPrescriptionUploadForCart(true);
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h3 className={`text-xl font-semibold ${textPrimary}`}>{medicine.name}</h3>
+                              {medicine.completed && (
+                                <span className={`px-3 py-1 rounded-full text-xs uppercase tracking-wide ${isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-700 text-white'}`}>
+                                  Completed
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className={textTertiary}>Dosage</p>
+                                <p className={`font-medium ${textPrimary}`}>{medicine.dosage}</p>
+                              </div>
+                              <div>
+                                <p className={textTertiary}>Frequency</p>
+                                <p className={`font-medium ${textPrimary}`}>{medicine.frequency}</p>
+                              </div>
+                              <div>
+                                <p className={textTertiary}>Duration</p>
+                                <p className={`font-medium ${textPrimary}`}>{medicine.duration}</p>
+                              </div>
+                              <div>
+                                <p className={textTertiary}>Days Left</p>
+                                <p className={`font-medium px-2 py-1 rounded-lg inline-block ${medicine.remainingDays <= 3
+                                    ? 'bg-red-100 text-red-700'
+                                    : medicine.remainingDays <= 7
+                                      ? 'bg-yellow-100 text-yellow-700'
+                                      : 'bg-green-100 text-green-700'
+                                  }`}>{medicine.remainingDays}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {!medicine.completed && (
+                            <button
+                              onClick={() => toggleReminder(medicine.id)}
+                              className={`px-1.5 py-2 rounded-lg transition-colors ${medicine.reminderEnabled
+                                  ? isDarkMode ? "bg-white text-black" : "bg-black text-white"
+                                  : isDarkMode ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-400"
+                                }`}
+                            >
+                              {medicine.reminderEnabled ? (
+                                <Bell className="w-4 h-4" />
+                              ) : (
+                                <BellOff className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              const shopMedicine = shopMedicines.find(m =>
+                                m.name.toLowerCase() === medicine.name.toLowerCase() ||
+                                m.genericName.toLowerCase() === medicine.name.toLowerCase()
+                              );
+                              if (shopMedicine) {
+                                if (shopMedicine.requiresPrescription) {
+                                  setIsBuyNow(true);
+                                  setPendingCartItem(shopMedicine);
+                                  setShowPrescriptionUploadForCart(true);
+                                } else {
+                                  setCart([{ medicine: shopMedicine, quantity: 1 }]);
+                                  setShowCheckout(true);
+                                }
                               } else {
-                                setCart([{ medicine: shopMedicine, quantity: 1 }]);
-                                setShowCheckout(true);
+                                setActiveTab("buyMedicines");
                               }
-                            } else {
-                              setActiveTab("buyMedicines");
-                            }
-                          }}
-                          className="px-4 py-2 rounded-lg transition-colors text-xs font-medium whitespace-nowrap bg-blue-400 text-white hover:bg-blue-500"
-                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                        >
-                          Buy Now
-                        </button>
+                            }}
+                            className="px-4 py-2 rounded-lg transition-colors text-xs font-medium whitespace-nowrap bg-blue-400 text-white hover:bg-blue-500"
+                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                          >
+                            Buy Now
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  ))}
               </div>
 
               {/* Last Month History */}
@@ -3251,21 +3260,21 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       // Calculates last 30 days dynamically from current date
                       const today = new Date();
                       today.setHours(0, 0, 0, 0); // Normalize to midnight for consistent date comparison
-                      
+
                       const last30Days: { date: string; taken: boolean; count: number; takenCount: number }[] = [];
-                      
+
                       // Loop through last 30 days dynamically
                       for (let i = 29; i >= 0; i--) {
                         const date = new Date(today);
                         date.setDate(date.getDate() - i);
                         const dateStr = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-                        
+
                         // Filter takings for this specific date - works with any database structure
                         // Ensure medicine.takings exists and is an array (database safety)
                         const dayTakings = (medicine.takings || []).filter(t => t && t.date === dateStr);
                         const takenCount = dayTakings.filter(t => t.taken === true).length;
                         const totalCount = dayTakings.length;
-                        
+
                         last30Days.push({
                           date: dateStr,
                           taken: takenCount === totalCount && totalCount > 0,
@@ -3273,14 +3282,14 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           takenCount: takenCount // How many were actually taken (from database)
                         });
                       }
-                      
+
                       // DYNAMIC ADHERENCE CALCULATION
                       // Only counts days where doses were actually scheduled (not all 30 days)
                       // This ensures weekly meds (Vitamin D3) get 100% if taken correctly
                       const scheduledDays = last30Days.filter(d => d.count > 0);
                       const fullyTakenDays = scheduledDays.filter(d => d.taken).length;
                       const adherenceRate = scheduledDays.length > 0 ? (fullyTakenDays / scheduledDays.length * 100) : 0;
-                      
+
                       return (
                         <div key={medicine.id} className="space-y-3">
                           <div className="flex items-center justify-between">
@@ -3297,7 +3306,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                               <p className="text-xs text-gray-500">Adherence</p>
                             </div>
                           </div>
-                          
+
                           {/* 30 day grid - DYNAMIC RENDERING */}
                           <div className="flex gap-1 flex-wrap">
                             {last30Days.map((day, idx) => {
@@ -3305,13 +3314,13 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                               const isPartial = day.count > 0 && day.takenCount > 0 && !day.taken;
                               const isMissed = day.count > 0 && day.takenCount === 0;
                               const isNotScheduled = day.count === 0;
-                              
+
                               // Dynamic color based on actual status from database
                               const backgroundColor = day.taken ? '#3B82F6' : // Blue: All doses taken
-                                                     isPartial ? '#FCD34D' : // Yellow: Some doses taken
-                                                     isMissed ? '#EF4444' :  // Red: No doses taken (but scheduled)
-                                                     '#E5E7EB';              // Grey: Not scheduled
-                              
+                                isPartial ? '#FCD34D' : // Yellow: Some doses taken
+                                  isMissed ? '#EF4444' :  // Red: No doses taken (but scheduled)
+                                    '#E5E7EB';              // Grey: Not scheduled
+
                               return (
                                 <motion.div
                                   key={`${medicine.id}-${day.date}`} // Unique key for database compatibility
@@ -3335,7 +3344,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       <p className="text-sm mt-2">Upload a prescription to get started</p>
                     </div>
                   )}
-                  
+
                   {/* Legend - Only show if there are medicines */}
                   {medicines && medicines.filter(m => !m.completed).length > 0 && (
                     <div className="flex items-center gap-4 pt-4 border-t text-xs text-gray-600">
@@ -3385,23 +3394,20 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       key={alert.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`rounded-2xl p-4 ${
-                        alert.icon === Pill 
-                          ? "bg-red-100" 
+                      className={`rounded-2xl p-4 ${alert.icon === Pill
+                          ? "bg-red-100"
                           : (alert.type === "warning" || alert.type === "info")
-                          ? "bg-yellow-100"
-                          : "bg-gray-100"
-                      }`}
+                            ? "bg-yellow-100"
+                            : "bg-gray-100"
+                        }`}
                     >
                       <div className="flex items-start gap-3">
-                        <alert.icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
-                          alert.icon === Pill ? "text-red-700" : (alert.type === "warning" || alert.type === "info") ? "text-yellow-700" : "text-gray-700"
-                        }`} />
+                        <alert.icon className={`w-5 h-5 flex-shrink-0 mt-0.5 ${alert.icon === Pill ? "text-red-700" : (alert.type === "warning" || alert.type === "info") ? "text-yellow-700" : "text-gray-700"
+                          }`} />
                         <div className="flex-1">
-                          <p className={`text-sm ${
-                            alert.icon === Pill ? "text-red-900" : (alert.type === "warning" || alert.type === "info") ? "text-yellow-900" : "text-gray-900"
-                          }`} style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>{alert.message}</p>
-                          
+                          <p className={`text-sm ${alert.icon === Pill ? "text-red-900" : (alert.type === "warning" || alert.type === "info") ? "text-yellow-900" : "text-gray-900"
+                            }`} style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>{alert.message}</p>
+
                           {alert.type === "reminder" && alert.medicineId && alert.date && alert.time && (
                             <div className="mt-3">
                               <button
@@ -3450,27 +3456,25 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     transition={{ delay: index * 0.1 }}
                     className="bg-gray-50 rounded-2xl p-4 text-center hover:bg-gray-100 transition-colors cursor-pointer"
                   >
-                    <vital.icon className={`w-8 h-8 mx-auto mb-2 ${
-                      vital.type === "Heart Rate" ? "text-red-500" :
-                      vital.type === "Temperature" ? "text-yellow-500" :
-                      vital.type === "Weight" ? "text-purple-500" :
-                      vital.type === "Blood Sugar" ? "text-green-500" :
-                      vital.type === "Blood Pressure" ? "text-blue-500" :
-                      "text-black"
-                    }`} />
+                    <vital.icon className={`w-8 h-8 mx-auto mb-2 ${vital.type === "Heart Rate" ? "text-red-500" :
+                        vital.type === "Temperature" ? "text-yellow-500" :
+                          vital.type === "Weight" ? "text-purple-500" :
+                            vital.type === "Blood Sugar" ? "text-green-500" :
+                              vital.type === "Blood Pressure" ? "text-blue-500" :
+                                "text-black"
+                      }`} />
                     <p className="text-xs text-gray-500 mb-1">{vital.type}</p>
                     <p className="text-lg font-semibold">
                       {vital.value}
                       <span className="text-xs text-gray-400 ml-1">{vital.unit}</span>
                     </p>
                     <span
-                      className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs ${
-                        vital.status === "normal"
+                      className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs ${vital.status === "normal"
                           ? "bg-gray-200 text-gray-700"
                           : vital.status === "warning"
-                          ? "bg-gray-300 text-gray-800"
-                          : "bg-black text-white"
-                      }`}
+                            ? "bg-gray-300 text-gray-800"
+                            : "bg-black text-white"
+                        }`}
                     >
                       {vital.status}
                     </span>
@@ -3506,27 +3510,27 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   <AreaChart data={heartRateHistory}>
                     <defs>
                       <linearGradient id="heartRateGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '12px' }} />
                     <YAxis stroke="#9ca3af" style={{ fontSize: '12px' }} domain={[60, 80]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#ffffff', 
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#ffffff',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                         fontSize: '12px'
-                      }} 
+                      }}
                     />
-                    <Area 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke="#ef4444" 
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#ef4444"
                       strokeWidth={2}
-                      fill="url(#heartRateGradient)" 
+                      fill="url(#heartRateGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -3561,26 +3565,26 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '12px' }} />
                     <YAxis stroke="#9ca3af" style={{ fontSize: '12px' }} domain={[70, 130]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#ffffff', 
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#ffffff',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                         fontSize: '12px'
-                      }} 
+                      }}
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="systolic" 
-                      stroke="#3b82f6" 
+                    <Line
+                      type="monotone"
+                      dataKey="systolic"
+                      stroke="#3b82f6"
                       strokeWidth={2}
                       dot={{ fill: '#3b82f6', r: 4 }}
                       name="Systolic"
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="diastolic" 
-                      stroke="#60a5fa" 
+                    <Line
+                      type="monotone"
+                      dataKey="diastolic"
+                      stroke="#60a5fa"
                       strokeWidth={2}
                       dot={{ fill: '#60a5fa', r: 4 }}
                       name="Diastolic"
@@ -3615,27 +3619,27 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     <AreaChart data={temperatureHistory}>
                       <defs>
                         <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#eab308" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#eab308" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#eab308" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '11px' }} />
                       <YAxis stroke="#9ca3af" style={{ fontSize: '11px' }} domain={[98, 99]} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#ffffff', 
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#ffffff',
                           border: '1px solid #e5e7eb',
                           borderRadius: '8px',
                           fontSize: '12px'
-                        }} 
+                        }}
                       />
-                      <Area 
-                        type="monotone" 
-                        dataKey="value" 
-                        stroke="#eab308" 
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#eab308"
                         strokeWidth={2}
-                        fill="url(#tempGradient)" 
+                        fill="url(#tempGradient)"
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -3666,18 +3670,18 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '11px' }} />
                       <YAxis stroke="#9ca3af" style={{ fontSize: '11px' }} domain={[85, 100]} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: '#ffffff', 
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#ffffff',
                           border: '1px solid #e5e7eb',
                           borderRadius: '8px',
                           fontSize: '12px'
-                        }} 
+                        }}
                       />
-                      <Line 
-                        type="monotone" 
-                        dataKey="value" 
-                        stroke="#22c55e" 
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#22c55e"
                         strokeWidth={2}
                         dot={{ fill: '#22c55e', r: 4 }}
                       />
@@ -3714,27 +3718,27 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   <AreaChart data={weightHistory}>
                     <defs>
                       <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey="date" stroke="#9ca3af" style={{ fontSize: '12px' }} />
                     <YAxis stroke="#9ca3af" style={{ fontSize: '12px' }} domain={[74, 77]} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#ffffff', 
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#ffffff',
                         border: '1px solid #e5e7eb',
                         borderRadius: '8px',
                         fontSize: '12px'
-                      }} 
+                      }}
                     />
-                    <Area 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke="#a855f7" 
+                    <Area
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#a855f7"
                       strokeWidth={2}
-                      fill="url(#weightGradient)" 
+                      fill="url(#weightGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -3817,25 +3821,23 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <span
-                            className={`px-2 py-1 rounded-lg text-xs uppercase ${
-                              apt.type === "emergency"
+                            className={`px-2 py-1 rounded-lg text-xs uppercase ${apt.type === "emergency"
                                 ? "bg-red-100 text-red-700"
                                 : apt.type === "followup"
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-green-100 text-green-700"
+                              }`}
                           >
                             {apt.type}
                           </span>
                           {apt.status && (
                             <span
-                              className={`px-2 py-1 rounded-lg text-xs uppercase ${
-                                apt.status === "accepted"
+                              className={`px-2 py-1 rounded-lg text-xs uppercase ${apt.status === "accepted"
                                   ? "bg-green-100 text-green-700"
                                   : apt.status === "rejected"
-                                  ? "bg-red-100 text-red-700"
-                                  : "bg-yellow-100 text-yellow-700"
-                              }`}
+                                    ? "bg-red-100 text-red-700"
+                                    : "bg-yellow-100 text-yellow-700"
+                                }`}
                               style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                             >
                               {apt.status}
@@ -3909,9 +3911,8 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       <motion.div
                         key={hospital.id || index}
                         whileHover={{ scale: 1.01 }}
-                        className={`bg-gray-50 rounded-2xl p-4 transition-colors cursor-pointer ${
-                          selectedHospitalForMap?.id === hospital.id ? "ring-2 ring-red-400" : ""
-                        }`}
+                        className={`bg-gray-50 rounded-2xl p-4 transition-colors cursor-pointer ${selectedHospitalForMap?.id === hospital.id ? "ring-2 ring-red-400" : ""
+                          }`}
                         onClick={() => setSelectedHospitalForMap(hospital)}
                       >
                         <div className="flex items-center justify-between mb-3">
@@ -4213,7 +4214,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     <h3 className="text-lg font-semibold group-hover:text-gray-600 transition-colors">Family Members</h3>
                     <ArrowUpRight className="w-5 h-5 text-gray-400 group-hover:text-black transition-colors" />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setShowAddFamilyModal(true)}
                     className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-green-600 transition-colors"
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
@@ -4243,7 +4244,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               <div className={`${cardBg} rounded-2xl p-6`}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold">Medical History</h3>
-                  <button 
+                  <button
                     onClick={() => setShowMedicalHistoryModal(true)}
                     className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-sm flex items-center gap-2 hover:bg-green-600 transition-colors"
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
@@ -4349,7 +4350,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   </h2>
                   <p className={`text-sm ${textSecondary}`}>Manage your family member profiles</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowAddFamilyModal(true)}
                   className="px-4 py-2 rounded-lg flex items-center gap-2 transition-colors bg-green-500 text-white hover:bg-green-600"
                 >
@@ -4387,7 +4388,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                         <span className={`font-medium ${textPrimary}`}>{member.bloodGroup}</span>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => {
                         setSelectedFamilyMember(member);
                         setShowFamilyMemberDetails(true);
@@ -4553,13 +4554,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       key={prediction.id}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className={`rounded-2xl p-6 border-2 ${
-                        prediction.risk === "high"
+                      className={`rounded-2xl p-6 border-2 ${prediction.risk === "high"
                           ? "bg-red-50 border-red-200"
                           : prediction.risk === "medium"
-                          ? "bg-yellow-50 border-yellow-200"
-                          : "bg-green-50 border-green-200"
-                      }`}
+                            ? "bg-yellow-50 border-yellow-200"
+                            : "bg-green-50 border-green-200"
+                        }`}
                     >
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex items-center gap-3">
@@ -4572,9 +4572,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                               {prediction.type === "heart" ? "Heart Disease" : prediction.type === "kidney" ? "Chronic Kidney Disease" : prediction.type}
                             </h3>
                             <p className="text-sm text-gray-500">
-                              {new Date(prediction.date).toLocaleDateString("en-US", { 
-                                month: "short", 
-                                day: "numeric", 
+                              {new Date(prediction.date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
                                 year: "numeric",
                                 hour: "2-digit",
                                 minute: "2-digit"
@@ -4583,13 +4583,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           </div>
                         </div>
                         <span
-                          className={`px-4 py-2 rounded-lg text-sm uppercase ${
-                            prediction.risk === "high"
+                          className={`px-4 py-2 rounded-lg text-sm uppercase ${prediction.risk === "high"
                               ? "bg-red-600 text-white"
                               : prediction.risk === "medium"
-                              ? "bg-yellow-600 text-white"
-                              : "bg-green-600 text-white"
-                          }`}
+                                ? "bg-yellow-600 text-white"
+                                : "bg-green-600 text-white"
+                            }`}
                           style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                         >
                           {prediction.risk} Risk
@@ -4603,13 +4602,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-3">
                           <div
-                            className={`h-3 rounded-full ${
-                              prediction.risk === "high"
+                            className={`h-3 rounded-full ${prediction.risk === "high"
                                 ? "bg-red-600"
                                 : prediction.risk === "medium"
-                                ? "bg-yellow-600"
-                                : "bg-green-600"
-                            }`}
+                                  ? "bg-yellow-600"
+                                  : "bg-green-600"
+                              }`}
                             style={{ width: `${prediction.probability}%` }}
                           ></div>
                         </div>
@@ -4751,7 +4749,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       Filters:
                     </span>
                   </div>
-                  
+
                   {/* Category Filter */}
                   <CustomSelect
                     value={selectedCategory}
@@ -4841,11 +4839,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                             }
                           }}
                           disabled={!medicine.inStock}
-                          className={`p-2 rounded-lg transition-colors ${
-                            medicine.inStock 
-                              ? "bg-green-500 text-white hover:bg-green-600" 
+                          className={`p-2 rounded-lg transition-colors ${medicine.inStock
+                              ? "bg-green-500 text-white hover:bg-green-600"
                               : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                          }`}
+                            }`}
                         >
                           <ShoppingCart className="w-4 h-4" />
                         </button>
@@ -4866,11 +4863,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           }
                         }}
                         disabled={!medicine.inStock}
-                        className={`w-full py-2 rounded-lg transition-colors text-sm font-medium ${
-                          medicine.inStock 
-                            ? "bg-blue-400 text-white hover:bg-blue-500" 
+                        className={`w-full py-2 rounded-lg transition-colors text-sm font-medium ${medicine.inStock
+                            ? "bg-blue-400 text-white hover:bg-blue-500"
                             : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        }`}
+                          }`}
                         style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                       >
                         {medicine.inStock ? "Buy Now" : "Out of Stock"}
@@ -4957,14 +4953,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   </div>
                   <button
                     onClick={() => setIsDarkMode(!isDarkMode)}
-                    className={`relative w-14 h-7 rounded-full transition-colors ${
-                      isDarkMode ? 'bg-black' : 'bg-gray-300'
-                    }`}
+                    className={`relative w-14 h-7 rounded-full transition-colors ${isDarkMode ? 'bg-black' : 'bg-gray-300'
+                      }`}
                   >
                     <div
-                      className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                        isDarkMode ? 'transform translate-x-7' : ''
-                      }`}
+                      className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${isDarkMode ? 'transform translate-x-7' : ''
+                        }`}
                     />
                   </button>
                 </div>
@@ -5042,14 +5036,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     </div>
                     <button
                       onClick={() => setSettings({ ...settings, notifications: !settings.notifications })}
-                      className={`relative w-14 h-7 rounded-full transition-colors ${
-                        settings.notifications ? 'bg-black' : 'bg-gray-300'
-                      }`}
+                      className={`relative w-14 h-7 rounded-full transition-colors ${settings.notifications ? 'bg-black' : 'bg-gray-300'
+                        }`}
                     >
                       <div
-                        className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                          settings.notifications ? 'transform translate-x-7' : ''
-                        }`}
+                        className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${settings.notifications ? 'transform translate-x-7' : ''
+                          }`}
                       />
                     </button>
                   </div>
@@ -5060,14 +5052,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     </div>
                     <button
                       onClick={() => setSettings({ ...settings, emailNotifications: !settings.emailNotifications })}
-                      className={`relative w-14 h-7 rounded-full transition-colors ${
-                        settings.emailNotifications ? 'bg-black' : 'bg-gray-300'
-                      }`}
+                      className={`relative w-14 h-7 rounded-full transition-colors ${settings.emailNotifications ? 'bg-black' : 'bg-gray-300'
+                        }`}
                     >
                       <div
-                        className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
-                          settings.emailNotifications ? 'transform translate-x-7' : ''
-                        }`}
+                        className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${settings.emailNotifications ? 'transform translate-x-7' : ''
+                          }`}
                       />
                     </button>
                   </div>
@@ -5325,7 +5315,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
               />
 
               <p className="text-xs text-gray-500 mt-4 text-center">
-                {uploadType === "prescription" 
+                {uploadType === "prescription"
                   ? "Our AI will automatically extract medicine details from your prescription"
                   : "Our AI will analyze and generate a comprehensive summary of your medical document"}
               </p>
@@ -5469,9 +5459,9 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   </button>
                   <button
                     onClick={() => {
-              setShowBookAppointmentModal(false);
-              setSelectedHospitalForBooking(null);
-            }}
+                      setShowBookAppointmentModal(false);
+                      setSelectedHospitalForBooking(null);
+                    }}
                     className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
                   >
                     <X className="w-5 h-5" />
@@ -5484,17 +5474,17 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 <div>
                   <label className="block text-sm text-gray-600 mb-2">Select Hospital</label>
                   <CustomSelect
-                    options={nearestHospitals.length > 0 
+                    options={nearestHospitals.length > 0
                       ? nearestHospitals.map(hospital => ({
-                          value: hospital.id,
-                          label: hospital.name,
-                          subtitle: `${hospital.distanceFormatted || hospital.distance} away`
-                        }))
+                        value: hospital.id,
+                        label: hospital.name,
+                        subtitle: `${hospital.distanceFormatted || hospital.distance} away`
+                      }))
                       : hospitals.map(hospital => ({
-                          value: hospital.id,
-                          label: hospital.name,
-                          subtitle: hospital.location
-                        }))}
+                        value: hospital.id,
+                        label: hospital.name,
+                        subtitle: hospital.location
+                      }))}
                     value={selectedHospitalForBooking ? selectedHospitalForBooking.id : selectedHospital}
                     onChange={(value) => {
                       setSelectedHospital(value);
@@ -5603,11 +5593,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                             key={slot}
                             type="button"
                             onClick={() => setSelectedSlot(slot)}
-                            className={`px-4 py-3 rounded-xl transition-all ${
-                              selectedSlot === slot
+                            className={`px-4 py-3 rounded-xl transition-all ${selectedSlot === slot
                                 ? "bg-black text-white"
                                 : "bg-gray-50 hover:bg-gray-100 text-gray-700"
-                            }`}
+                              }`}
                           >
                             {slot}
                           </button>
@@ -5618,7 +5607,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     )}
                   </div>
                 )}
-                
+
                 <button
                   type="submit"
                   disabled={selectedAppointmentType === "emergency" ? (!selectedHospital || !selectedDoctor) : (!selectedHospital || !selectedDoctor || !selectedDate || !selectedSlot)}
@@ -5674,7 +5663,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                       <div>
                         <p className="font-semibold text-blue-900">Driving Route</p>
                         <p className="text-sm text-blue-700">
-                          Distance: {hospitalRoutes['driving-car'].distance.toFixed(1)} km • 
+                          Distance: {hospitalRoutes['driving-car'].distance.toFixed(1)} km •
                           Estimated Time: {hospitalRoutes['driving-car'].duration} minutes
                         </p>
                       </div>
@@ -5695,7 +5684,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 <MapContainer
                   key={`route-map-modal-${bookedHospital?.id || 'default'}`}
                   center={
-                    userLocation 
+                    userLocation
                       ? [userLocation.latitude, userLocation.longitude] as [number, number]
                       : bookedHospital?.lat && bookedHospital?.lng
                         ? [bookedHospital.lat, bookedHospital.lng] as [number, number]
@@ -5708,7 +5697,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   />
-                  
+
                   <MapSizeHandler />
 
                   {/* User Location Marker */}
@@ -5729,24 +5718,24 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   )}
 
                   {/* Route Polyline - Show when available */}
-                  {hospitalRoutes['driving-car']?.coords && 
-                   Array.isArray(hospitalRoutes['driving-car'].coords) && 
-                   hospitalRoutes['driving-car'].coords.length > 0 && (
-                    <>
-                      <Polyline
-                        positions={hospitalRoutes['driving-car'].coords as Array<[number, number]>}
-                        color="blue"
-                        weight={4}
-                        opacity={0.7}
-                      />
-                      <RouteHandler
-                        routeCoords={hospitalRoutes['driving-car'].coords as Array<[number, number]>}
-                        selectedHospital={bookedHospital}
-                      />
-                    </>
-                  )}
+                  {hospitalRoutes['driving-car']?.coords &&
+                    Array.isArray(hospitalRoutes['driving-car'].coords) &&
+                    hospitalRoutes['driving-car'].coords.length > 0 && (
+                      <>
+                        <Polyline
+                          positions={hospitalRoutes['driving-car'].coords as Array<[number, number]>}
+                          color="blue"
+                          weight={4}
+                          opacity={0.7}
+                        />
+                        <RouteHandler
+                          routeCoords={hospitalRoutes['driving-car'].coords as Array<[number, number]>}
+                          selectedHospital={bookedHospital}
+                        />
+                      </>
+                    )}
                 </MapContainer>
-                
+
                 {/* Loading overlay for route */}
                 {!hospitalRoutes['driving-car']?.coords && bookedHospital?.lat && bookedHospital?.lng && (
                   <div className="absolute top-2 right-2 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
@@ -5897,11 +5886,10 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 <button
                   onClick={() => addToCart(selectedShopMedicine)}
                   disabled={!selectedShopMedicine.inStock}
-                  className={`w-full py-4 rounded-xl uppercase tracking-wide transition-colors flex items-center justify-center gap-3 ${
-                    selectedShopMedicine.inStock
+                  className={`w-full py-4 rounded-xl uppercase tracking-wide transition-colors flex items-center justify-center gap-3 ${selectedShopMedicine.inStock
                       ? "bg-black text-white hover:bg-gray-800"
                       : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  }`}
+                    }`}
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                 >
                   <ShoppingCart className="w-5 h-5" />
@@ -5988,7 +5976,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                                 <X className="w-4 h-4" />
                               </button>
                             </div>
-                            
+
                             {item.prescriptionUploaded && (
                               <div className="flex items-center gap-1 mb-2">
                                 <CheckCircle className="w-3 h-3 text-green-600" />
@@ -6100,16 +6088,14 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 {alerts.slice(0, 5).map((alert) => (
                   <div
                     key={alert.id}
-                    className={`p-4 rounded-2xl border ${
-                      isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
-                    }`}
+                    className={`p-4 rounded-2xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+                      }`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className={`mt-1 ${
-                        alert.type === 'critical' ? 'text-red-500' :
-                        alert.type === 'warning' ? 'text-yellow-500' :
-                        'text-blue-500'
-                      }`}>
+                      <div className={`mt-1 ${alert.type === 'critical' ? 'text-red-500' :
+                          alert.type === 'warning' ? 'text-yellow-500' :
+                            'text-blue-500'
+                        }`}>
                         <AlertCircle className="w-5 h-5" />
                       </div>
                       <div className="flex-1">
@@ -6141,9 +6127,8 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                 </button>
                 <button
                   onClick={() => setShowNotificationPopup(false)}
-                  className={`flex-1 py-3 rounded-xl transition-colors uppercase tracking-wide ${
-                    isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
+                  className={`flex-1 py-3 rounded-xl transition-colors uppercase tracking-wide ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
+                    }`}
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                 >
                   Close
@@ -6401,12 +6386,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                     age: parseInt(formData.get('age') as string),
                     bloodGroup: newFamilyMember.bloodGroup
                   };
-                  
+
                   if (!newMember.relation || !newMember.bloodGroup) {
                     toast.error("Please select relation and blood group");
                     return;
                   }
-                  
+
                   setFamilyMembers([...familyMembers, newMember]);
                   toast.success(`${newMember.name} added to family members`);
                   setShowAddFamilyModal(false);
@@ -6597,7 +6582,7 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                   </h3>
                   <p className={`text-sm mt-1 ${textSecondary}`}>
                     {(() => {
-                      const dayMedicines = medicines.flatMap(med => 
+                      const dayMedicines = medicines.flatMap(med =>
                         med.takings.filter(t => t.date === selectedCalendarDate)
                       );
                       const taken = dayMedicines.filter(t => t.taken).length;
@@ -6640,13 +6625,12 @@ export function PatientDashboard({ onLogout }: { onLogout: () => void }) {
                           const isTimeTriggered = isToday && hasMedicineTimePassed(taking.time);
 
                           return (
-                            <div 
+                            <div
                               key={idx}
-                              className={`flex items-center justify-between p-3 rounded-lg ${
-                                taking.taken 
-                                  ? 'bg-green-100 dark:bg-green-900/30' 
+                              className={`flex items-center justify-between p-3 rounded-lg ${taking.taken
+                                  ? 'bg-green-100 dark:bg-green-900/30'
                                   : isDarkMode ? 'bg-gray-700' : 'bg-gray-100'
-                              }`}
+                                }`}
                             >
                               <div className="flex items-center gap-3">
                                 {taking.taken ? (
