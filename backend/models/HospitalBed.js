@@ -8,7 +8,6 @@ const hospitalBedSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ["ICU", "General", "Private", "Emergency"],
     required: true
   },
   total: {
@@ -55,6 +54,7 @@ const hospitalBedSchema = new mongoose.Schema({
     notes: { type: String, default: '' },
 
     // Admission metadata snapshot (for quick dashboard access)
+    patientName: { type: String, default: '' }, // Internal patient name
     admissionType: { type: String, enum: ['Emergency', 'OPD', 'Surgery', 'Transfer', ''], default: '' },
     priority: { type: String, enum: ['Normal', 'High', 'Critical', ''], default: '' },
 

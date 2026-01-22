@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import { Chatbot } from "./Chatbot";
@@ -31,6 +31,9 @@ import {
   getBedRequests,
   getBedRequestCount,
   updateBedRequest,
+  getInternalBedRequests,
+  getInternalBedRequestCount,
+  updateInternalBedRequest,
   type BedData,
   type DoctorSlot,
   type StaffMember,
@@ -40,17 +43,18 @@ import {
   type OpdCheckIn,
   type HospitalDoctor,
   type BedRequestData,
+  type InternalBedRequest,
+  getMLPrediction,
+  type MLPredictionResponse,
 } from "../services/api";
 import {
   getCentralizedHospitalCapacity,
-  type CentralizedHospitalData,
   type CentralizedCapacityResponse,
 } from "../services/centralizedApi";
 import {
   User,
   Calendar,
   Clock,
-  MapPin,
   Phone,
   Bell,
   Settings,
@@ -72,34 +76,22 @@ import {
   Thermometer,
   Cloud,
   Shield,
-  Info,
-  Eye,
   Edit,
   Plus,
   Minus,
   BedDouble,
   UserPlus,
-  UserMinus,
   CheckCircle,
   XCircle,
   AlertCircle,
-  Building2,
-  DoorOpen,
-  Briefcase,
-  ClipboardList,
   Download,
-  Upload,
-  BarChart3 as BarChartIcon,
-  PieChart as PieChartIcon,
-  LineChart as LineChartIcon,
   Moon,
   Sun,
   Globe,
   Package,
   Lock,
-  Save,
-  Trash2,
   Mail,
+  Inbox,
 } from "lucide-react";
 import {
   PieChart,
@@ -118,7 +110,9 @@ import {
 } from "recharts";
 import { translations } from "../utils/translations";
 import { AnalyticsTab } from './AnalyticsTab';
-import BedManagementDrawer, { type StaffRole } from './BedManagementDrawer';
+import BedManagementDrawer, { } from './BedManagementDrawer';
+import { type StaffRole } from '../services/api';
+import ConsultationOutcomeModal from './ConsultationOutcomeModal';
 import { OpdDashboard } from './OpdDashboard';
 import { CentralizedDashboard } from './CentralizedDashboard';
 
@@ -151,6 +145,11 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDepartment, setFilterDepartment] = useState("all");
+
+  // Consultation Modal State
+  const [showConsultationModal, setShowConsultationModal] = useState(false);
+  const [selectedOpdPatient, setSelectedOpdPatient] = useState<any>(null);
+  const [showObservationDrawer, setShowObservationDrawer] = useState(false);
 
   // User State
   const [user, setUser] = useState<any>(null);
@@ -233,10 +232,19 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
   const [centralizedData, setCentralizedData] = useState<CentralizedCapacityResponse | null>(null);
   const [centralizedLoading, setCentralizedLoading] = useState(false);
 
-  // Bed Request Notifications State
+  // Bed Request Notifications State (External - Cross Hospital)
   const [bedRequests, setBedRequests] = useState<BedRequestData[]>([]);
   const [bedRequestCount, setBedRequestCount] = useState({ unreadCount: 0, pendingCount: 0 });
   const [showBedRequestsPopup, setShowBedRequestsPopup] = useState(false);
+  const [activeRequestTab, setActiveRequestTab] = useState<'external' | 'internal'>('external'); // New Tab State
+
+  // Internal Bed Requests (From OPD Admissions)
+  const [internalBedRequests, setInternalBedRequests] = useState<InternalBedRequest[]>([]);
+  const [internalBedRequestCount, setInternalBedRequestCount] = useState({ pendingCount: 0 });
+  const [showInternalRequestsPopup, setShowInternalRequestsPopup] = useState(false);
+
+  // ML Prediction State
+  const [mlPrediction, setMlPrediction] = useState<MLPredictionResponse | null>(null);
 
   // OPD Check-in form state
   const [opdForm, setOpdForm] = useState({
@@ -276,6 +284,9 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
     department: "",
     shift: "Morning" as "Morning" | "Evening" | "Night"
   });
+
+  // OPD Role State
+  const [opdRole, setOpdRole] = useState<StaffRole>('reception');
 
   // New Resource Handlers
   const handleAddBedSubmit = async (e: React.FormEvent) => {
@@ -446,6 +457,9 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
               department: 'Emergency',
               expectedIncrease: Math.round(ew.forecast_increase_percentage || 0),
               timestamp: new Date().toISOString(),
+              prediction: `Expected increase of ${Math.round(ew.forecast_increase_percentage || 0)}%`,
+              date: new Date().toISOString().split('T')[0],
+              recommendations: ["Increase staff availability", "Monitor critical care beds"],
             };
             allSurgeAlerts.push(earlyWarningSurgeAlert);
           }
@@ -468,11 +482,35 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
       }
     };
 
+
+
     fetchData();
+
+    // Fetch ML Prediction
+    getMLPrediction('Mumbai').then(setMlPrediction).catch(console.error);
+
+    // Fetch internal bed requests (from OPD admissions)
+    const fetchInternalBedRequests = async () => {
+      try {
+        const [requests, count] = await Promise.all([
+          getInternalBedRequests(),
+          getInternalBedRequestCount()
+        ]);
+        setInternalBedRequests(requests);
+        setInternalBedRequestCount(count);
+      } catch (err) {
+        console.error('Error fetching internal bed requests:', err);
+      }
+    };
+    fetchInternalBedRequests();
+    const internalRequestsInterval = setInterval(fetchInternalBedRequests, 30000); // Refresh every 30s
 
     // Refresh data every 5 minutes
     const interval = setInterval(fetchData, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(internalRequestsInterval);
+    };
   }, []);
 
   // REMOVED ALL HARDCODED DATA - Now fetched from backend via useEffect above
@@ -1292,8 +1330,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 {(() => {
                   // Use opdQueue for real-time counts (syncs with OPD Queue page)
                   // Status values from HospitalOpdCheckIn model: 'checked-in', 'in-triage', 'in-consult', 'completed', 'no-show'
-                  const queueWaiting = opdQueue.filter(q => q.status === 'checked-in' || q.status === 'in-triage' || q.status === 'waiting').length;
-                  const queueInProgress = opdQueue.filter(q => q.status === 'in-consult' || q.status === 'in_consultation').length;
+                  const queueWaiting = opdQueue.filter(q => q.status === 'checked-in' || q.status === 'in-triage').length;
+                  const queueInProgress = opdQueue.filter(q => q.status === 'in-consult').length;
                   const queueCompleted = opdQueue.filter(q => q.status === 'completed').length;
                   const totalInQueue = opdQueue.length;
 
@@ -1314,7 +1352,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     { name: "Completed", value: queueCompleted, color: "#10b981" },
                     { name: "Waiting", value: queueWaiting, color: "#f59e0b" },
                     { name: "In Progress", value: queueInProgress, color: "#3b82f6" },
-                    { name: "Cancelled", value: opdQueue.filter(q => q.status === "cancelled").length, color: "#ef4444" },
+                    { name: "Cancelled", value: opdQueue.filter(q => q.status === "no-show").length, color: "#ef4444" },
                   ].filter(x => x.value > 0);
 
                   // Time slot trend from queue data
@@ -1633,17 +1671,25 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                       </select>
                     </div>
 
-                    {/* Incoming Bed Requests Button - Always Visible */}
+                    {/* Unified Inbox Button */}
                     <button
-                      onClick={() => setShowBedRequestsPopup(true)}
-                      className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-colors ${bedRequestCount.pendingCount > 0
-                        ? "bg-purple-100 border-purple-300 text-purple-800 hover:bg-purple-200"
+                      onClick={() => {
+                        setShowBedRequestsPopup(true);
+                        // Default to internal tab if internal requests are pending, else external
+                        setActiveRequestTab(internalBedRequestCount.pendingCount > 0 ? 'internal' : 'external');
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-colors ${bedRequestCount.pendingCount + internalBedRequestCount.pendingCount > 0
+                        ? "bg-black text-white border-black shadow-md hover:bg-gray-800"
                         : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
                         }`}
+                      title="Bed Request Inbox"
                     >
-                      <Mail className="w-4 h-4" />
+                      <Inbox className="w-4 h-4" />
                       <span className="text-sm font-semibold" style={{ fontFamily: "'Doto', sans-serif" }}>
-                        {bedRequestCount.pendingCount}
+                        Inbox
+                        {(bedRequestCount.pendingCount + internalBedRequestCount.pendingCount) > 0 &&
+                          ` (${bedRequestCount.pendingCount + internalBedRequestCount.pendingCount})`
+                        }
                       </span>
                     </button>
 
@@ -1657,15 +1703,26 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                         <div className="w-3 h-3 bg-red-500 rounded-full"></div>
                         <span className="text-xs font-semibold text-gray-700">{t.occupied}</span>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                        <span className="text-xs font-semibold text-gray-700">Reserved</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
+                        <span className="text-xs font-semibold text-gray-700">Discharge</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                        <span className="text-xs font-semibold text-gray-700">Cleaning</span>
+                      </div>
                     </div>
 
                     <button
                       onClick={() => setShowAddBedModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors text-sm uppercase tracking-wide shadow-md hover:shadow-lg"
-                      style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: "600" }}
+                      className="flex flex-col items-center justify-center w-16 h-16 bg-black text-white rounded-2xl hover:bg-gray-800 transition-all shadow-md hover:shadow-lg gap-1"
                     >
-                      <Plus className="w-4 h-4" />
-                      {t.addBedType}
+                      <Plus className="w-8 h-8" strokeWidth={2.5} />
+                      <span className="text-[10px] uppercase font-bold tracking-wide leading-none text-center">Add</span>
                     </button>
                   </div>
                 </div>
@@ -1714,12 +1771,13 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                           // Sort by bed number just to be safe they appear in order
                           [...bed.beds].sort((a, b) => a.number - b.number).map((b) => {
                             // Status-based styling
+                            // User update: Reserved - yellow, Occupied - red, Orange - discharge, Blue - cleaning
                             const statusStyles: Record<string, { classes: string; fill: boolean }> = {
                               available: { classes: "bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 shadow-sm", fill: false },
-                              occupied: { classes: "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100", fill: true },
-                              reserved: { classes: "bg-yellow-500 text-white shadow-lg shadow-yellow-200 ring-2 ring-yellow-100", fill: true },
-                              cleaning: { classes: "bg-blue-500 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-100", fill: true },
-                              discharge_pending: { classes: "bg-orange-500 text-white shadow-lg shadow-orange-200 ring-2 ring-orange-100", fill: true },
+                              occupied: { classes: "bg-red-500 text-white shadow-lg shadow-red-200 ring-2 ring-red-100", fill: true }, // Red
+                              reserved: { classes: "bg-yellow-500 text-white shadow-lg shadow-yellow-200 ring-2 ring-yellow-100", fill: true }, // Yellow
+                              cleaning: { classes: "bg-blue-500 text-white shadow-lg shadow-blue-200 ring-2 ring-blue-100", fill: true }, // Blue
+                              discharge_pending: { classes: "bg-orange-500 text-white shadow-lg shadow-orange-200 ring-2 ring-orange-100", fill: true }, // Orange
                               blocked: { classes: "bg-gray-500 text-white shadow-lg shadow-gray-200 ring-2 ring-gray-100", fill: true },
                               maintenance: { classes: "bg-gray-500 text-white shadow-lg shadow-gray-200 ring-2 ring-gray-100", fill: true },
                             };
@@ -1806,7 +1864,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                   {beds.length === 0 && (
                     <div className="text-center py-16 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
-                      <BedDouble className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                      <BedDouble className="w-8 h-8 text-gray-300 mx-auto mb-4" />
                       <h3 className="text-lg font-semibold text-gray-900">No Wards Configured</h3>
                       <p className="text-gray-500 mb-6">Start by adding a ward to manage beds.</p>
                       <button
@@ -1821,141 +1879,177 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
               </div>
             )}
 
-            {/* OPD Queue Tab */}
+            {/* OPD Queue Tab - Added padding and z-index fix */}
             {activeTab === "opd" && (
-              <div className="space-y-6">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                  <h2
-                    className="text-2xl md:text-3xl uppercase tracking-wide"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
-                  >
-                    {t.opdQueue}
-                  </h2>
-                  <div className="text-sm text-gray-600">
-                    Auto-refreshes every 30 seconds
-                  </div>
-                </div>
+              <div className="space-y-6 relative z-10 top-16">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 relative z-20">
+                  <div className="flex items-center gap-4">
+                    <h2
+                      className="text-2xl md:text-3xl uppercase tracking-wide"
+                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}
+                    >
+                      {t.opdQueue}
+                    </h2>
+                    {/* Role Toggle - Improved UI with only Doctor and Reception */}
+                    <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-xl shadow-inner relative z-30">
+                      <button
+                        onClick={() => setOpdRole('reception')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${opdRole === 'reception'
+                          ? 'bg-white text-blue-700 shadow-md'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                          }`}
+                        style={{ fontFamily: "'Doto', sans-serif" }}
+                      >
+                        <Users className="w-4 h-4" />
+                        Reception
+                      </button>
+                      <button
+                        onClick={() => setOpdRole('doctor')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${opdRole === 'doctor'
+                          ? 'bg-white text-emerald-700 shadow-md'
+                          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                          }`}
+                        style={{ fontFamily: "'Doto', sans-serif" }}
+                      >
+                        <Stethoscope className="w-4 h-4" />
+                        Doctor
+                      </button>
+                    </div>
 
-                {/* Top Section: Check-in Form + Analytics Side by Side */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Check-in Form - Left Half */}
-                  <div className="bg-white rounded-2xl shadow-lg p-5 border border-gray-100">
-                    <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "'Doto', sans-serif" }}>
-                      {t.patientCheckIn}
-                    </h3>
-                    <form onSubmit={handleOpdCheckIn} className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">Patient Name</label>
-                          <input
-                            type="text"
-                            placeholder="Ex: John Doe"
-                            value={opdForm.patientName}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, patientName: e.target.value })}
-                            required
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">Department</label>
-                          <select
-                            value={opdForm.department}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, department: e.target.value })}
-                            required
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          >
-                            <option value="">Select Department</option>
-                            <option value="Cardiology">Cardiology</option>
-                            <option value="Orthopedics">Orthopedics</option>
-                            <option value="Pediatrics">Pediatrics</option>
-                            <option value="General Medicine">General Medicine</option>
-                            <option value="Neurology">Neurology</option>
-                            <option value="ENT">ENT</option>
-                            <option value="Dermatology">Dermatology</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">Doctor</label>
-                          <select
-                            value={opdForm.doctorName}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, doctorName: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          >
-                            <option value="">Auto-Assign</option>
-                            {hospitalDoctors.map((doctor) => (
-                              <option key={doctor.id} value={doctor.name}>
-                                {doctor.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">Priority</label>
-                          <select
-                            value={opdForm.priority}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, priority: e.target.value as any })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          >
-                            <option value="normal">Normal</option>
-                            <option value="high">High</option>
-                            <option value="critical">Critical</option>
-                          </select>
-                        </div>
-                      </div>
-
-
-
-                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">ETA</label>
-                          <input
-                            type="datetime-local"
-                            value={opdForm.estimatedArrivalTime}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, estimatedArrivalTime: e.target.value })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-500 uppercase">Complexity</label>
-                          <select
-                            value={opdForm.consultationComplexity}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, consultationComplexity: e.target.value as any })}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
-                          >
-                            <option value="medium">Medium</option>
-                            <option value="low">Low</option>
-                            <option value="high">High</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-2">
-                        <label className="flex items-center gap-2 px-3 py-2 border border-red-100 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={opdForm.isEmergency}
-                            onChange={(e: any) => setOpdForm({ ...opdForm, isEmergency: e.target.checked })}
-                            className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
-                          />
-                          <span className="text-xs font-bold text-red-700 uppercase">Emergency</span>
-                        </label>
-                        <button
-                          type="submit"
-                          className="px-6 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors uppercase tracking-wide text-sm font-semibold"
-                        >
-                          {t.checkIn}
-                        </button>
-                      </div>
-                    </form>
+                    {opdRole === 'doctor' && (
+                      <button
+                        onClick={() => setShowObservationDrawer(true)}
+                        className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs uppercase font-bold tracking-wide transition-colors"
+                      >
+                        <span className="text-lg">👁️</span>
+                        Observation
+                      </button>
+                    )}
                   </div>
 
-                  {/* Analytics Dashboard - Right Half */}
-                  <OpdDashboard
-                    opdQueue={opdQueue}
-                    doctorSlots={doctorSlots}
-                    onToggleDoctorActive={handleDoctorStatusToggle}
-                  />
                 </div>
+
+                {/* Top Section: Check-in Form + Analytics Side by Side (Only for Reception) */}
+                {opdRole === 'reception' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Check-in Form - Left Half */}
+                    <div className="bg-white rounded-2xl shadow-lg p-5 border border-gray-100">
+                      <h3 className="text-base font-semibold mb-3" style={{ fontFamily: "'Doto', sans-serif" }}>
+                        {t.patientCheckIn}
+                      </h3>
+                      <form onSubmit={handleOpdCheckIn} className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">Patient Name</label>
+                            <input
+                              type="text"
+                              placeholder="Ex: John Doe"
+                              value={opdForm.patientName}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, patientName: e.target.value })}
+                              required
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">Department</label>
+                            <select
+                              value={opdForm.department}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, department: e.target.value })}
+                              required
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            >
+                              <option value="">Select Department</option>
+                              <option value="Cardiology">Cardiology</option>
+                              <option value="Orthopedics">Orthopedics</option>
+                              <option value="Pediatrics">Pediatrics</option>
+                              <option value="General Medicine">General Medicine</option>
+                              <option value="Neurology">Neurology</option>
+                              <option value="ENT">ENT</option>
+                              <option value="Dermatology">Dermatology</option>
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">Doctor</label>
+                            <select
+                              value={opdForm.doctorName}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, doctorName: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            >
+                              <option value="">Auto-Assign</option>
+                              {hospitalDoctors.map((doctor) => (
+                                <option key={doctor.id} value={doctor.name}>
+                                  {doctor.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">Priority</label>
+                            <select
+                              value={opdForm.priority}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, priority: e.target.value as any })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            >
+                              <option value="normal">Normal</option>
+                              <option value="high">High</option>
+                              <option value="critical">Critical</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-100">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">ETA</label>
+                            <input
+                              type="datetime-local"
+                              value={opdForm.estimatedArrivalTime}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, estimatedArrivalTime: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-500 uppercase">Complexity</label>
+                            <select
+                              value={opdForm.consultationComplexity}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, consultationComplexity: e.target.value as any })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-sm"
+                            >
+                              <option value="medium">Medium</option>
+                              <option value="low">Low</option>
+                              <option value="high">High</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2">
+                          <label className="flex items-center gap-2 px-3 py-2 border border-red-100 bg-red-50 rounded-lg cursor-pointer hover:bg-red-100 transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={opdForm.isEmergency}
+                              onChange={(e: any) => setOpdForm({ ...opdForm, isEmergency: e.target.checked })}
+                              className="w-4 h-4 text-red-600 rounded focus:ring-red-500"
+                            />
+                            <span className="text-xs font-bold text-red-700 uppercase">Emergency</span>
+                          </label>
+                          <button
+                            type="submit"
+                            className="px-6 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors uppercase tracking-wide text-sm font-semibold"
+                          >
+                            {t.checkIn}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
+                    {/* Analytics Dashboard - Right Half */}
+                    <OpdDashboard
+                      opdQueue={opdQueue}
+                      doctorSlots={doctorSlots}
+                      onToggleDoctorActive={handleDoctorStatusToggle}
+                    />
+                  </div>
+                )}
+
 
 
                 {/* Queue Display */}
@@ -1969,7 +2063,12 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                   ) : (
                     <div className="space-y-3">
                       {opdQueue
-                        .filter((e: any) => e.status !== 'completed' && e.status !== 'no-show')
+                        .filter((e: any) =>
+                          e.status !== 'completed' &&
+                          e.status !== 'no-show' &&
+                          e.status !== 'observation' &&
+                          e.status !== 'transferred-for-admission'
+                        )
                         .sort((a: any, b: any) => {
                           // Prefer priorityScore if available (Higher score = Higher priority)
                           if (a.priorityScore !== undefined && b.priorityScore !== undefined) {
@@ -2013,6 +2112,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                           <span className="bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded font-bold uppercase">EMERGENCY</span>
                                         )}
                                       </div>
+                                      <p className="text-xs text-gray-400 mt-0.5">{entry.department}</p>
                                     </div>
                                   </div>
 
@@ -2075,37 +2175,45 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                                   </div>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-2 justify-end">
-                                  {(entry.status === 'checked-in' || entry.status === 'in-triage') && (
-                                    <button
-                                      onClick={() => handleUpdateOpdStatus(entry.id, 'in-consult')}
-                                      className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs uppercase tracking-wide"
-                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                {/* Action Buttons - Only for Doctors */}
+                                {opdRole === 'doctor' && (
+                                  <div className="flex flex-wrap items-center gap-2 justify-end">
+                                    {(entry.status === 'checked-in' || entry.status === 'in-triage') && (
+                                      <button
+                                        onClick={() => handleUpdateOpdStatus(entry.id, 'in-consult')}
+                                        className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs uppercase tracking-wide"
+                                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                      >
+                                        Start
+                                      </button>
+                                    )}
+                                    {entry.status === 'in-consult' && (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            setSelectedOpdPatient(entry);
+                                            setShowConsultationModal(true);
+                                          }}
+                                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-xs uppercase tracking-wide"
+                                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                        >
+                                          Consult
+                                        </button>
+                                      </>
+                                    )}
+                                    <select
+                                      value={entry.priority}
+                                      onChange={(e) => handleUpdateOpdPriority(entry.id, e.target.value)}
+                                      className="px-2 py-1 text-xs bg-gray-50 border border-gray-200 rounded hover:bg-gray-100"
+                                      aria-label="Change Priority"
                                     >
-                                      Start
-                                    </button>
-                                  )}
-                                  {entry.status === 'in-consult' && (
-                                    <button
-                                      onClick={() => handleUpdateOpdStatus(entry.id, 'completed')}
-                                      className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs uppercase tracking-wide"
-                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                                    >
-                                      Complete
-                                    </button>
-                                  )}
-                                  <select
-                                    value={entry.priority}
-                                    onChange={(e) => handleUpdateOpdPriority(entry.id, e.target.value)}
-                                    className="px-2 py-1 text-xs bg-gray-50 border border-gray-200 rounded hover:bg-gray-100"
-                                    aria-label="Change Priority"
-                                  >
-                                    <option value="low">Low</option>
-                                    <option value="normal">Normal</option>
-                                    <option value="high">High</option>
-                                    <option value="critical">Critical</option>
-                                  </select>
-                                </div>
+                                      <option value="low">Low</option>
+                                      <option value="normal">Normal</option>
+                                      <option value="high">High</option>
+                                      <option value="critical">Critical</option>
+                                    </select>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -2113,7 +2221,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                     </div>
                   )}
                 </div>
-              </div>
+              </div >
             )
             }
 
@@ -2423,6 +2531,92 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
 
                   {/* Surge Alerts */}
                   <div className="space-y-4">
+
+                    {/* ML Prediction - AI Early Warning Card */}
+                    {mlPrediction && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-6 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 cursor-pointer transition-all hover:bg-indigo-50"
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className="p-3 bg-white rounded-xl shadow-sm">
+                            <Activity className="w-6 h-6 text-indigo-600" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between mb-2">
+                              <div>
+                                <h3
+                                  className="text-lg uppercase tracking-wide mb-1 text-indigo-900"
+                                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                >
+                                  AI Early Warning
+                                </h3>
+                                <p className="text-sm text-indigo-800 leading-relaxed font-medium mb-3">
+                                  {mlPrediction.hospital_dashboard}
+                                </p>
+                              </div>
+                              <span
+                                className="px-3 py-1 bg-indigo-600 text-white rounded-lg text-xs uppercase tracking-wide font-bold"
+                                style={{ fontFamily: "'Doto', sans-serif" }}
+                              >
+                                FORECAST
+                              </span>
+                            </div>
+
+                            {/* Impact Metrics */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                              <div className="bg-white/80 p-2 rounded-lg text-center">
+                                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Expected Patients</div>
+                                <div className="text-xl font-bold text-indigo-700">{mlPrediction.expected_patients_next_24h}</div>
+                                <div className="text-[10px] text-gray-400">Next 24h</div>
+                              </div>
+                              <div className="bg-white/80 p-2 rounded-lg text-center">
+                                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">O2 Increase</div>
+                                <div className={`text-xl font-bold ${mlPrediction.recommended_actions.oxygen_cylinder_increase_percent > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                  {mlPrediction.recommended_actions.oxygen_cylinder_increase_percent}%
+                                </div>
+                                <div className="text-[10px] text-gray-400">Required</div>
+                              </div>
+                              <div className="bg-white/80 p-2 rounded-lg text-center">
+                                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Emerg. Beds</div>
+                                <div className={`text-xl font-bold ${mlPrediction.recommended_actions.emergency_beds_to_open > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                                  {mlPrediction.recommended_actions.emergency_beds_to_open}
+                                </div>
+                                <div className="text-[10px] text-gray-400">To Open</div>
+                              </div>
+                              <div className="bg-white/80 p-2 rounded-lg text-center">
+                                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">AQI Impact</div>
+                                <div className={`text-xl font-bold ${mlPrediction.aqi > 150 ? 'text-red-600' : mlPrediction.aqi > 100 ? 'text-orange-600' : 'text-green-600'}`}>
+                                  {mlPrediction.aqi}
+                                </div>
+                                <div className="text-[10px] text-gray-400">Current Level</div>
+                              </div>
+                            </div>
+
+                            {/* Action Items */}
+                            <div className="flex flex-wrap items-center gap-2">
+                              {mlPrediction.recommended_actions.staff_alert_required && (
+                                <span className="flex items-center gap-1.5 px-3 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold border border-red-200">
+                                  <AlertCircle className="w-3 h-3" />
+                                  Staff Alert Required
+                                </span>
+                              )}
+                              {mlPrediction.recommended_actions.mask_advisory && (
+                                <span className="flex items-center gap-1.5 px-3 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200">
+                                  <Shield className="w-3 h-3" />
+                                  Mask Advisory
+                                </span>
+                              )}
+                              <span className="px-3 py-1 bg-white/60 text-gray-500 rounded-lg text-xs border border-gray-200">
+                                Updated: {new Date(mlPrediction.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+
                     {surgeAlerts.map((alert) => (
                       <motion.div
                         key={alert.id}
@@ -3855,18 +4049,15 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl max-h-[80vh] overflow-hidden flex flex-col"
             >
-              <div className="flex items-start justify-between mb-4">
+              <div className="flex items-start justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="p-3 bg-purple-100 rounded-2xl">
-                    <BedDouble className="w-6 h-6 text-purple-600" />
+                  <div className="p-3 bg-black/5 rounded-2xl">
+                    <Inbox className="w-6 h-6 text-black" />
                   </div>
                   <div>
                     <h3 className="text-2xl" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}>
-                      Bed Requests
+                      Inbox
                     </h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      You have {bedRequestCount.pendingCount} pending request{bedRequestCount.pendingCount !== 1 ? 's' : ''}
-                    </p>
                   </div>
                 </div>
                 <button
@@ -3877,85 +4068,196 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 </button>
               </div>
 
+              {/* Tabs */}
+              <div className="flex p-1 bg-gray-100 rounded-xl mb-4">
+                <button
+                  onClick={() => setActiveRequestTab('internal')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${activeRequestTab === 'internal'
+                    ? 'bg-white shadow-sm text-black'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  <Bell className="w-4 h-4" />
+                  Admissions ({internalBedRequestCount.pendingCount})
+                </button>
+                <button
+                  onClick={() => setActiveRequestTab('external')}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 ${activeRequestTab === 'external'
+                    ? 'bg-white shadow-sm text-black'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  <Mail className="w-4 h-4" />
+                  Requests ({bedRequestCount.pendingCount})
+                </button>
+              </div>
+
               <div className="space-y-3 overflow-y-auto flex-1 pr-1">
-                {bedRequests.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    No bed requests at this time
-                  </div>
-                ) : (
-                  bedRequests.filter(req => req.status === 'pending').map((request) => (
-                    <div
-                      key={request.id || request._id}
-                      className="p-4 rounded-2xl border bg-purple-50 border-purple-200"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="mt-1 text-purple-500">
-                          <Hospital className="w-5 h-5" />
-                        </div>
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-gray-800 mb-1">
-                            {request.fromHospitalName}
-                          </h4>
-                          <p className="text-sm text-gray-600 mb-2">
-                            Requesting <strong>{request.bedType}</strong> bed for patient <strong>{request.patientName}</strong>
-                            {request.age && `, age ${request.age}`}
-                          </p>
-                          {request.condition && (
-                            <p className="text-xs text-gray-500 mb-2">
-                              Condition: {request.condition}
-                            </p>
-                          )}
-                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
-                            <Clock className="w-3 h-3" />
-                            {new Date(request.createdAt).toLocaleString()}
+                {activeRequestTab === 'internal' ? (
+                  // Internal Requests List
+                  internalBedRequests.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No pending admission requests
+                    </div>
+                  ) : (
+                    internalBedRequests.filter(req => req.status === 'pending').map((request) => (
+                      <div
+                        key={request.id}
+                        className="p-4 rounded-2xl border bg-amber-50 border-amber-200"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-1 text-amber-500">
+                            <Stethoscope className="w-5 h-5" />
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await updateBedRequest(request.id || request._id!, { status: 'approved', isRead: true });
-                                  // Refresh the bed requests list
-                                  const updated = await getBedRequests();
-                                  setBedRequests(updated);
-                                  const count = await getBedRequestCount();
-                                  setBedRequestCount(count);
-                                  // REFRESH BEDS DATA to show the newly reserved bed
-                                  const refreshedBeds = await getHospitalBeds();
-                                  setBeds(refreshedBeds);
-                                  toast.success('Request approved! Bed reserved and highlighted in yellow.');
-                                } catch (error) {
-                                  toast.error('Failed to approve request');
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors flex items-center gap-1"
-                            >
-                              <CheckCircle className="w-3 h-3" />
-                              Approve
-                            </button>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await updateBedRequest(request.id || request._id!, { status: 'rejected', isRead: true });
-                                  toast.success('Request rejected');
-                                  // Refresh the list
-                                  const updated = await getBedRequests();
-                                  setBedRequests(updated);
-                                  const count = await getBedRequestCount();
-                                  setBedRequestCount(count);
-                                } catch (error) {
-                                  toast.error('Failed to reject request');
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-colors flex items-center gap-1"
-                            >
-                              <XCircle className="w-3 h-3" />
-                              Reject
-                            </button>
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-gray-800 mb-1">
+                              {request.patientName}
+                            </h4>
+                            <p className="text-sm text-gray-600 mb-2">
+                              Type: <strong>{request.bedType}</strong> | Urgency: <span className={`uppercase font-bold ${request.urgencyLevel === 'emergency' ? 'text-red-600' : request.urgencyLevel === 'urgent' ? 'text-orange-600' : 'text-gray-600'}`}>{request.urgencyLevel}</span>
+                            </p>
+                            <p className="text-xs text-gray-500 mb-2">
+                              <strong>Reason:</strong> {request.reason}
+                            </p>
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                              <Clock className="w-3 h-3" />
+                              {new Date(request.createdAt).toLocaleString()} | by {request.requestedByName}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateInternalBedRequest(request.id, { status: 'approved' });
+                                    // Refresh lists
+                                    const [reqs, count] = await Promise.all([
+                                      getInternalBedRequests(),
+                                      getInternalBedRequestCount()
+                                    ]);
+                                    setInternalBedRequests(reqs);
+                                    setInternalBedRequestCount(count);
+
+                                    // Refresh beds data
+                                    const refreshedBeds = await getHospitalBeds();
+                                    setBeds(refreshedBeds);
+
+                                    toast.success('Admission approved! Please allocate a specific bed manually if needed.');
+                                  } catch (error) {
+                                    toast.error('Failed to approve admission');
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors flex items-center gap-1"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                Approve
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateInternalBedRequest(request.id, { status: 'rejected' });
+                                    toast.success('Admission request rejected');
+                                    // Refresh lists
+                                    const [reqs, count] = await Promise.all([
+                                      getInternalBedRequests(),
+                                      getInternalBedRequestCount()
+                                    ]);
+                                    setInternalBedRequests(reqs);
+                                    setInternalBedRequestCount(count);
+                                  } catch (error) {
+                                    toast.error('Failed to reject admission');
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-colors flex items-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                Reject
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
+                    ))
+                  )
+                ) : (
+                  // External Requests List
+                  bedRequests.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      No external bed requests
                     </div>
-                  ))
+                  ) : (
+                    bedRequests.filter(req => req.status === 'pending').map((request) => (
+                      <div
+                        key={request.id || request._id}
+                        className="p-4 rounded-2xl border bg-purple-50 border-purple-200"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-1 text-purple-500">
+                            <Hospital className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-gray-800 mb-1">
+                              {request.fromHospitalName}
+                            </h4>
+                            <p className="text-sm text-gray-600 mb-2">
+                              Requesting <strong>{request.bedType}</strong> bed for patient <strong>{request.patientName}</strong>
+                              {request.age && `, age ${request.age}`}
+                            </p>
+                            {request.condition && (
+                              <p className="text-xs text-gray-500 mb-2">
+                                Condition: {request.condition}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+                              <Clock className="w-3 h-3" />
+                              {new Date(request.createdAt).toLocaleString()}
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateBedRequest(request.id || request._id!, { status: 'approved', isRead: true });
+                                    // Refresh the bed requests list
+                                    const updated = await getBedRequests();
+                                    setBedRequests(updated);
+                                    const count = await getBedRequestCount();
+                                    setBedRequestCount(count);
+                                    // REFRESH BEDS DATA to show the newly reserved bed
+                                    const refreshedBeds = await getHospitalBeds();
+                                    setBeds(refreshedBeds);
+                                    toast.success('Request approved! Bed reserved and highlighted in yellow.');
+                                  } catch (error) {
+                                    toast.error('Failed to approve request');
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors flex items-center gap-1"
+                              >
+                                <CheckCircle className="w-3 h-3" />
+                                Approve
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await updateBedRequest(request.id || request._id!, { status: 'rejected', isRead: true });
+                                    toast.success('Request rejected');
+                                    // Refresh the list
+                                    const updated = await getBedRequests();
+                                    setBedRequests(updated);
+                                    const count = await getBedRequestCount();
+                                    setBedRequestCount(count);
+                                  } catch (error) {
+                                    toast.error('Failed to reject request');
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 transition-colors flex items-center gap-1"
+                              >
+                                <XCircle className="w-3 h-3" />
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )
                 )}
               </div>
 
@@ -3972,6 +4274,8 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Internal Bed Requests Popup - Removed (Merged into Inbox) */}
 
       <div className="fixed top-20 right-4 z-50 space-y-3 max-w-sm">
         <AnimatePresence>
@@ -4011,7 +4315,6 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         </AnimatePresence>
       </div>
 
-      {/* Bed Management Drawer */}
       <BedManagementDrawer
         isOpen={showBedDrawer}
         onClose={() => setShowBedDrawer(false)}
@@ -4022,7 +4325,106 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
         role={staffRole}
       />
 
+      <AnimatePresence>
+        {showConsultationModal && selectedOpdPatient && (
+          <ConsultationOutcomeModal
+            isOpen={showConsultationModal}
+            onClose={() => {
+              setShowConsultationModal(false);
+              setSelectedOpdPatient(null);
+            }}
+            patientData={selectedOpdPatient}
+            onOutcomeSubmit={async () => {
+              // Refresh queue logic is handled inside the modal or via auto-refresh hook
+              const updatedQueue = await getOpdQueue();
+              setOpdQueue(updatedQueue);
+
+              // Refresh internal bed requests immediately so they appear in Inbox
+              try {
+                const [requests, count] = await Promise.all([
+                  getInternalBedRequests(),
+                  getInternalBedRequestCount()
+                ]);
+                setInternalBedRequests(requests);
+                setInternalBedRequestCount(count);
+              } catch (err) {
+                console.error("Error refreshing bed requests:", err);
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Chatbot */}
+      {/* Observation Drawer */}
+      <AnimatePresence>
+        {showObservationDrawer && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black z-40"
+              onClick={() => setShowObservationDrawer(false)}
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col"
+            >
+              <div className="p-4 border-b flex items-center justify-between bg-indigo-50">
+                <h2 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
+                  <span className="text-xl">👁️</span> Observation Room
+                </h2>
+                <button onClick={() => setShowObservationDrawer(false)} className="p-2 hover:bg-indigo-100 rounded-full">
+                  <X className="w-5 h-5 text-indigo-600" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+                {opdQueue.filter((p: any) => p.status === 'observation').length === 0 ? (
+                  <div className="text-center py-10 text-gray-400">
+                    <p>No patients under observation</p>
+                  </div>
+                ) : (
+                  opdQueue
+                    .filter((p: any) => p.status === 'observation')
+                    .map((patient: any) => (
+                      <div key={patient.id} className="bg-white p-4 rounded-xl shadow-sm border border-indigo-100 relative">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h3 className="font-bold text-gray-900">{patient.patientName}</h3>
+                            <p className="text-xs text-gray-500">{patient.department} • {patient.doctorName}</p>
+                          </div>
+                          <span className="bg-indigo-100 text-indigo-700 text-[10px] px-2 py-1 rounded-full font-bold uppercase">
+                            Observation
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded mb-3">
+                          <span className="font-semibold text-gray-700">Notes:</span> {patient.notes || "No notes"}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedOpdPatient(patient);
+                              setShowConsultationModal(true);
+                              setShowObservationDrawer(false);
+                            }}
+                            className="bg-indigo-600 text-white text-xs px-3 py-2 rounded-lg font-medium hover:bg-indigo-700 transition"
+                          >
+                            Update Status
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <Chatbot userType="hospital" />
     </div >
   );

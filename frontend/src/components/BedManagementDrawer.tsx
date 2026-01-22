@@ -8,7 +8,6 @@ import {
     CheckCircle,
     Loader2,
     Ban,
-    Sparkles,
     UserPlus,
     ArrowRight,
     Shield,
@@ -17,9 +16,7 @@ import {
     Lock,
     Stethoscope
 } from 'lucide-react';
-
-// Role type for the toggle system
-export type StaffRole = 'admin' | 'admission_staff' | 'ward_nurse' | 'housekeeping' | 'doctor';
+import { StaffRole } from '../services/api';
 
 // Define the bed slot type matching api.ts
 interface BedSlot {
@@ -32,6 +29,7 @@ interface BedSlot {
     cleaningEta?: string;
     blockedReason?: string;
     notes?: string;
+    patientName?: string; // Internal patient name
     admissionType?: 'Emergency' | 'OPD' | 'Surgery' | 'Transfer' | '';
     priority?: 'Normal' | 'High' | 'Critical' | '';
     hasVentilator?: boolean;
@@ -77,7 +75,7 @@ const statusConfig: Record<string, { color: string; bg: string; icon: React.Reac
     available: { color: 'text-emerald-600', bg: 'bg-emerald-100', icon: <CheckCircle className="w-5 h-5" />, label: 'Available' },
     occupied: { color: 'text-red-600', bg: 'bg-red-100', icon: <BedDouble className="w-5 h-5 fill-current" />, label: 'Occupied' },
     reserved: { color: 'text-yellow-600', bg: 'bg-yellow-100', icon: <Clock className="w-5 h-5" />, label: 'Reserved' },
-    cleaning: { color: 'text-blue-600', bg: 'bg-blue-100', icon: <Sparkles className="w-5 h-5" />, label: 'Cleaning' },
+    cleaning: { color: 'text-blue-600', bg: 'bg-blue-100', icon: null, label: 'Cleaning' },
     discharge_pending: { color: 'text-orange-600', bg: 'bg-orange-100', icon: <ArrowRight className="w-5 h-5" />, label: 'Discharge Pending' },
     blocked: { color: 'text-gray-600', bg: 'bg-gray-200', icon: <Ban className="w-5 h-5" />, label: 'Blocked' },
     maintenance: { color: 'text-gray-600', bg: 'bg-gray-200', icon: <AlertTriangle className="w-5 h-5" />, label: 'Maintenance' },
@@ -89,7 +87,8 @@ const roleLabels: Record<StaffRole, string> = {
     admission_staff: 'Admission Staff',
     ward_nurse: 'Ward Nurse',
     housekeeping: 'Housekeeping',
-    doctor: 'Doctor'
+    doctor: 'Doctor',
+    reception: 'Receptionist'
 };
 
 // Role-based permissions
@@ -116,6 +115,10 @@ const rolePermissions: Record<StaffRole, {
     doctor: {
         canViewPatientDetails: true,
         allowedActions: ['discharge_request', 'admit', 'mark_cleaning'] // Can request discharge, admit, and mark patient vacated
+    },
+    reception: {
+        canViewPatientDetails: false,
+        allowedActions: [] // Receptionists don't manage beds
     }
 };
 
@@ -213,7 +216,7 @@ const BedManagementDrawer: React.FC<BedManagementDrawerProps> = ({
                 actions.push({ label: 'Patient Vacated / Start Cleaning', action: 'mark_cleaning', color: 'bg-blue-500 hover:bg-blue-600' });
                 break;
             case 'cleaning':
-                actions.push({ label: 'Mark as Available', action: 'finish_cleaning', color: 'bg-emerald-500 hover:bg-emerald-600' });
+                actions.push({ label: 'Mark as Available', action: 'finish_cleaning', color: 'bg-green-600 hover:bg-green-700' });
                 break;
             case 'blocked':
             case 'maintenance':
@@ -517,6 +520,36 @@ const BedManagementDrawer: React.FC<BedManagementDrawerProps> = ({
                                         <div className="text-sm">
                                             <span className="text-gray-500">Contact:</span>
                                             <span className="ml-2 font-medium text-gray-800">{bed.externalPatientContact}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Internal Reservation Info - NEW BLOCK */}
+                            {bed.status === 'reserved' && !bed.isExternalReservation && bed.patientName && (
+                                <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-200 space-y-2">
+                                    <h3 className="text-xs font-bold text-yellow-700 uppercase tracking-wider flex items-center gap-2">
+                                        🏠 Internal Reservation
+                                    </h3>
+                                    <div className="text-sm">
+                                        <span className="text-gray-500">Patient:</span>
+                                        <span className="ml-2 font-lg font-bold text-gray-900">{bed.patientName}</span>
+                                    </div>
+                                    {bed.department && (
+                                        <div className="text-sm">
+                                            <span className="text-gray-500">Department:</span>
+                                            <span className="ml-2 font-medium text-gray-800">{bed.department}</span>
+                                        </div>
+                                    )}
+                                    {bed.reservedAt && (
+                                        <div className="text-sm">
+                                            <span className="text-gray-500">Reserved At:</span>
+                                            <span className="ml-2 font-medium text-gray-800">{formatTime(bed.reservedAt)}</span>
+                                        </div>
+                                    )}
+                                    {bed.notes && (
+                                        <div className="mt-2 text-sm text-gray-600 italic border-l-2 border-yellow-300 pl-2">
+                                            "{bed.notes}"
                                         </div>
                                     )}
                                 </div>

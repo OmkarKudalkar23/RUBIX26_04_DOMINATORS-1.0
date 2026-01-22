@@ -10,7 +10,7 @@ const hospitalOpdCheckInSchema = new mongoose.Schema(
     doctorName: { type: String, required: false, default: '' },
     visitType: { type: String, enum: ['OPD', 'Follow-up'], default: 'OPD' },
     // Check-in & queue status
-    status: { type: String, enum: ['checked-in', 'in-triage', 'in-consult', 'completed', 'no-show'], default: 'checked-in' },
+    status: { type: String, enum: ['checked-in', 'in-triage', 'in-consult', 'completed', 'no-show', 'transferred-for-admission', 'observation'], default: 'checked-in' },
     checkInTime: { type: Date, default: () => new Date() },
     priority: { type: String, enum: ['low', 'normal', 'high', 'critical'], default: 'normal' },
 

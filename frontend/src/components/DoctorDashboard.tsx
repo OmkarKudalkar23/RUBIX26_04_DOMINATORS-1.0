@@ -13,6 +13,8 @@ import {
   deleteDoctorMedicalRecord,
   type MedicalRecord,
   getEarlyWarning,
+  getMLPrediction,
+  type MLPredictionResponse,
 } from "../services/api";
 import {
   User,
@@ -81,6 +83,8 @@ interface PatientAppointment {
   notes?: string;
   patientId: string;
   symptoms?: string;
+  reason?: string;
+  scheduledTime?: string;
 }
 
 // MedicalRecord interface imported from api.ts
@@ -115,6 +119,12 @@ interface PatientHistory {
     weight: string;
   };
   medicalRecords?: MedicalRecord[];
+  predictions?: {
+    type: string;
+    risk: string;
+    probability: number;
+    date: string;
+  }[];
 }
 
 interface HealthAlert {
@@ -152,12 +162,12 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
   const [language, setLanguage] = useState("English");
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
   const [showUpdateProfileModal, setShowUpdateProfileModal] = useState(false);
-  
+
   // Change password form
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  
+
   // Update profile form
   const [profileForm, setProfileForm] = useState({
     name: "Dr. Sarah Mitchell",
@@ -178,7 +188,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
       // Emergency appointments always come first
       if (a.type === "emergency" && b.type !== "emergency") return -1;
       if (a.type !== "emergency" && b.type === "emergency") return 1;
-      
+
       // If both are emergency or both are not, sort by date/time
       const dateTimeA = new Date(`${a.date} ${a.time}`);
       const dateTimeB = new Date(`${b.date} ${b.time}`);
@@ -193,14 +203,15 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
 
   // Patient history - now fetched per patient on demand
   // Removed hardcoded patientsHistory array - data is fetched from API when needed
-  
+
   // Health alerts - now loaded from API
   const [healthAlerts, setHealthAlerts] = useState<HealthAlert[]>([]);
   const [isLoadingAlerts, setIsLoadingAlerts] = useState(false);
-  
+  const [mlPrediction, setMlPrediction] = useState<MLPredictionResponse | null>(null);
+
   // Patient history loading state
   const [isLoadingPatientHistory, setIsLoadingPatientHistory] = useState(false);
-  
+
   // Doctor profile - now loaded from API
   const [doctorProfile, setDoctorProfile] = useState({
     name: "",
@@ -253,7 +264,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         setIsLoadingAppointments(true);
         setAppointmentsError(null);
         const data = await getDoctorAppointments();
-        
+
         // Map backend response to PatientAppointment format
         const mappedAppointments: PatientAppointment[] = data.map((apt: any) => ({
           id: apt.id,
@@ -268,7 +279,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
           patientId: apt.patientId || "",
           symptoms: apt.symptoms || "",
         }));
-        
+
         setAppointments(sortAppointmentsByDate(mappedAppointments));
       } catch (error: any) {
         console.error("Error fetching appointments:", error);
@@ -286,15 +297,15 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
     const fetchAlerts = async () => {
       try {
         setIsLoadingAlerts(true);
-        
+
         // Fetch both regular health alerts and early warning alerts
         const [healthAlertsData, earlyWarningData] = await Promise.allSettled([
           getHealthAlerts(),
           getEarlyWarning('Mumbai').catch(() => null) // Default to Mumbai
         ]);
-        
+
         const alerts: HealthAlert[] = [];
-        
+
         // Add regular health alerts
         if (healthAlertsData.status === 'fulfilled') {
           const data = healthAlertsData.value;
@@ -310,7 +321,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
           }));
           alerts.push(...mappedAlerts);
         }
-        
+
         // Add early warning alerts if available
         if (earlyWarningData.status === 'fulfilled' && earlyWarningData.value) {
           const ew = earlyWarningData.value;
@@ -322,7 +333,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
               'WARNING': 'high',
               'CRITICAL': 'high'
             };
-            
+
             // Map alert level to type
             const typeMap: Record<string, 'pollution' | 'seasonal' | 'epidemic' | 'weather'> = {
               'INFO': 'epidemic',
@@ -330,7 +341,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
               'WARNING': 'epidemic',
               'CRITICAL': 'epidemic'
             };
-            
+
             const earlyWarningAlert: HealthAlert = {
               id: `early-warning-${Date.now()}`,
               type: typeMap[ew.alert_level] || 'epidemic',
@@ -348,7 +359,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
             alerts.push(earlyWarningAlert);
           }
         }
-        
+
         setHealthAlerts(alerts);
       } catch (error: any) {
         console.error("Error fetching health alerts:", error);
@@ -358,7 +369,10 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
       }
     };
     fetchAlerts();
-    
+
+    // Fetch ML Prediction
+    getMLPrediction('Mumbai').then(setMlPrediction).catch(console.error);
+
     // Refresh alerts every 5 minutes
     const interval = setInterval(fetchAlerts, 5 * 60 * 1000);
     return () => clearInterval(interval);
@@ -367,7 +381,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
   // Handle appointment response
   const handleAppointmentAction = (action: "accept" | "reject") => {
     if (!selectedAppointment) return;
-    
+
     setResponseType(action);
     setShowResponseModal(true);
   };
@@ -407,7 +421,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
       toast.success(
         `Appointment ${responseType === "accept" ? "accepted" : "rejected"} successfully!`
       );
-      
+
       setShowResponseModal(false);
       setResponseMessage("");
       setSelectedAppointment(null);
@@ -504,20 +518,20 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
     }
 
     const loadingToast = toast.loading(`Uploading and analyzing ${uploadType}...`);
-    
+
     try {
       // Upload file and get AI analysis from backend
       const newRecord = await uploadDoctorMedicalRecord(file, uploadType);
-      
+
       // Add to local state
       setDoctorMedicalRecords([newRecord, ...doctorMedicalRecords]);
       setShowUploadModal(false);
-      
+
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      
+
       toast.dismiss(loadingToast);
       toast.success(`${uploadType.charAt(0).toUpperCase() + uploadType.slice(1)} analyzed successfully!`);
     } catch (error: any) {
@@ -556,7 +570,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
   // Initialize dummy medical records for all patients on first load
   React.useEffect(() => {
     const allMedicalRecords = JSON.parse(localStorage.getItem('allPatientMedicalRecords') || '{}');
-    
+
     // Initialize patient p2 records if not exists
     if (!allMedicalRecords['p2']) {
       allMedicalRecords['p2'] = [
@@ -578,7 +592,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         }
       ];
     }
-    
+
     // Initialize patient p3 records if not exists
     if (!allMedicalRecords['p3']) {
       allMedicalRecords['p3'] = [
@@ -608,7 +622,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         }
       ];
     }
-    
+
     // Initialize patient p4 records if not exists
     if (!allMedicalRecords['p4']) {
       allMedicalRecords['p4'] = [
@@ -622,7 +636,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         }
       ];
     }
-    
+
     // Initialize patient p5 records if not exists
     if (!allMedicalRecords['p5']) {
       allMedicalRecords['p5'] = [
@@ -644,7 +658,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         }
       ];
     }
-    
+
     localStorage.setItem('allPatientMedicalRecords', JSON.stringify(allMedicalRecords));
   }, []);
 
@@ -695,7 +709,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
   // Simulate real-time notifications
   React.useEffect(() => {
     const notificationIntervals: NodeJS.Timeout[] = [];
-    
+
     // Simulate new appointment requests
     const appointmentInterval = setInterval(() => {
       if (Math.random() > 0.7) {
@@ -708,7 +722,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         );
       }
     }, 40000); // Every 40 seconds
-    
+
     // Simulate urgent cases
     const urgentInterval = setInterval(() => {
       if (Math.random() > 0.85) {
@@ -719,7 +733,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         );
       }
     }, 50000); // Every 50 seconds
-    
+
     // Simulate lab results
     const labInterval = setInterval(() => {
       if (Math.random() > 0.75) {
@@ -730,9 +744,9 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
         );
       }
     }, 35000); // Every 35 seconds
-    
+
     notificationIntervals.push(appointmentInterval, urgentInterval, labInterval);
-    
+
     return () => {
       notificationIntervals.forEach(interval => clearInterval(interval));
     };
@@ -771,7 +785,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
               </p>
               <p className="text-xs text-gray-500">{doctorProfile.specialty}</p>
             </div>
-            
+
             {/* Notification Bell */}
             <button
               onClick={() => setShowNotificationPopup(true)}
@@ -785,7 +799,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                 </span>
               )}
             </button>
-            
+
             <button
               onClick={onLogout}
               className="p-2 md:p-3 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors"
@@ -823,26 +837,23 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                         setActiveTab(item.id);
                         setShowSidebar(false);
                       }}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                        activeTab === item.id
-                          ? "bg-black text-white"
-                          : "hover:bg-gray-100 text-gray-700"
-                      }`}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === item.id
+                        ? "bg-black text-white"
+                        : "hover:bg-gray-100 text-gray-700"
+                        }`}
                       style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                     >
                       <Icon className="w-5 h-5" />
                       <span className="text-sm uppercase tracking-wide">{item.label}</span>
                       {item.id === "medicalRecords" && doctorMedicalRecords.length > 0 && (
-                        <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${
-                          activeTab === item.id ? "bg-white text-black" : "bg-black text-white"
-                        }`}>
+                        <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${activeTab === item.id ? "bg-white text-black" : "bg-black text-white"
+                          }`}>
                           {doctorMedicalRecords.length}
                         </span>
                       )}
                       {item.id === "appointments" && appointmentStats.pending > 0 && (
-                        <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${
-                          activeTab === item.id ? "bg-white text-black" : "bg-black text-white"
-                        }`}>
+                        <span className={`ml-auto px-2 py-0.5 rounded-full text-xs ${activeTab === item.id ? "bg-white text-black" : "bg-black text-white"
+                          }`}>
                           {appointmentStats.pending}
                         </span>
                       )}
@@ -857,6 +868,46 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
 
       {/* Main Content */}
       <main className="pt-24 px-4 md:px-8 pb-8">
+        {/* ML Prediction Alert */}
+        {mlPrediction && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 shadow-sm"
+          >
+            <div className="flex items-start gap-4">
+              <div className="p-2 bg-white rounded-xl shadow-sm text-blue-600">
+                <Activity className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-blue-900 flex items-center gap-2">
+                    AI Clinical Advisory
+                    <span className="text-xs px-2 py-0.5 bg-blue-200 text-blue-800 rounded-full">FORECAST</span>
+                  </h3>
+                  <span className="text-xs text-blue-600 font-medium">
+                    Updated: {new Date(mlPrediction.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <p className="text-sm text-blue-800 mb-3 leading-relaxed">
+                  {mlPrediction.doctor_dashboard}
+                </p>
+                <div className="flex items-center gap-4 text-xs font-medium text-blue-700 bg-white/60 p-2 rounded-lg inline-flex">
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    Expected Patients (24h): <span className="text-blue-900 font-bold text-sm">{mlPrediction.expected_patients_next_24h}</span>
+                  </span>
+                  <div className="w-px h-3 bg-blue-300"></div>
+                  <span className="flex items-center gap-1.5">
+                    <Wind className="w-3.5 h-3.5" />
+                    AQI Impact: <span className={`font-bold text-sm ${mlPrediction.aqi > 150 ? 'text-red-600' : 'text-blue-900'}`}>{mlPrediction.aqi}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Appointments Tab */}
         {activeTab === "appointments" && (
           <div className="max-w-7xl mx-auto">
@@ -941,11 +992,10 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                   <button
                     key={filter}
                     onClick={() => setFilterStatus(filter)}
-                    className={`px-4 py-3 rounded-xl transition-all text-xs uppercase tracking-wider ${
-                      filterStatus === filter
-                        ? "bg-black text-white"
-                        : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                    }`}
+                    className={`px-4 py-3 rounded-xl transition-all text-xs uppercase tracking-wider ${filterStatus === filter
+                      ? "bg-black text-white"
+                      : "bg-gray-50 text-gray-600 hover:bg-gray-100"
+                      }`}
                     style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                   >
                     {filter}
@@ -977,9 +1027,8 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                     key={apt.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className={`bg-gray-50 rounded-2xl p-4 md:p-6 ${
-                      apt.type === "emergency" ? "ring-2 ring-rose-200" : ""
-                    }`}
+                    className={`bg-gray-50 rounded-2xl p-4 md:p-6 ${apt.type === "emergency" ? "ring-2 ring-rose-200" : ""
+                      }`}
                   >
                     <div className="flex flex-col md:flex-row md:items-center gap-4">
                       {/* Patient Info */}
@@ -1004,13 +1053,12 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                             </p>
                           </div>
                           <span
-                            className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider ${
-                              apt.status === "pending"
-                                ? "bg-yellow-100 text-yellow-700"
-                                : apt.status === "accepted"
+                            className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider ${apt.status === "pending"
+                              ? "bg-yellow-100 text-yellow-700"
+                              : apt.status === "accepted"
                                 ? "bg-emerald-100 text-emerald-600"
                                 : "bg-rose-100 text-rose-600"
-                            }`}
+                              }`}
                             style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                           >
                             {apt.status}
@@ -1112,101 +1160,98 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                 </div>
               ) : (
                 healthAlerts.map((alert) => (
-                <motion.div
-                  key={alert.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`rounded-2xl p-6 ${
-                    alert.severity === "high"
+                  <motion.div
+                    key={alert.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`rounded-2xl p-6 ${alert.severity === "high"
                       ? "bg-red-50 ring-2 ring-red-200"
                       : alert.severity === "medium"
-                      ? "bg-orange-50 ring-2 ring-orange-200"
-                      : "bg-blue-50 ring-2 ring-blue-200"
-                  }`}
-                >
-                  {/* Alert Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`p-3 rounded-xl ${
-                          alert.severity === "high"
+                        ? "bg-orange-50 ring-2 ring-orange-200"
+                        : "bg-blue-50 ring-2 ring-blue-200"
+                      }`}
+                  >
+                    {/* Alert Header */}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex items-start gap-3">
+                        <div
+                          className={`p-3 rounded-xl ${alert.severity === "high"
                             ? "bg-red-200"
                             : alert.severity === "medium"
-                            ? "bg-orange-200"
-                            : "bg-blue-200"
-                        }`}
-                      >
-                        {alert.type === "pollution" && <Wind className="w-6 h-6" />}
-                        {alert.type === "seasonal" && <Calendar className="w-6 h-6" />}
-                        {alert.type === "epidemic" && <Shield className="w-6 h-6" />}
-                        {alert.type === "weather" && <Cloud className="w-6 h-6" />}
-                      </div>
-                      <div>
-                        <h3
-                          className="text-xl mb-1 uppercase tracking-wide"
-                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                              ? "bg-orange-200"
+                              : "bg-blue-200"
+                            }`}
                         >
-                          {alert.title}
-                        </h3>
-                        <p className="text-sm text-gray-600">{alert.date}</p>
+                          {alert.type === "pollution" && <Wind className="w-6 h-6" />}
+                          {alert.type === "seasonal" && <Calendar className="w-6 h-6" />}
+                          {alert.type === "epidemic" && <Shield className="w-6 h-6" />}
+                          {alert.type === "weather" && <Cloud className="w-6 h-6" />}
+                        </div>
+                        <div>
+                          <h3
+                            className="text-xl mb-1 uppercase tracking-wide"
+                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                          >
+                            {alert.title}
+                          </h3>
+                          <p className="text-sm text-gray-600">{alert.date}</p>
+                        </div>
                       </div>
-                    </div>
-                    <span
-                      className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider ${
-                        alert.severity === "high"
+                      <span
+                        className={`px-3 py-1 rounded-lg text-xs uppercase tracking-wider ${alert.severity === "high"
                           ? "bg-red-200 text-red-800"
                           : alert.severity === "medium"
-                          ? "bg-orange-200 text-orange-800"
-                          : "bg-blue-200 text-blue-800"
-                      }`}
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                    >
-                      {alert.severity}
-                    </span>
-                  </div>
-
-                  {/* Alert Message */}
-                  <p className="text-gray-700 mb-4">{alert.message}</p>
-
-                  {/* Affected Conditions */}
-                  <div className="mb-4">
-                    <p
-                      className="text-xs text-gray-600 uppercase tracking-wider mb-2"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                    >
-                      Affected Conditions
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {alert.affectedConditions.map((condition, idx) => (
-                        <span
-                          key={idx}
-                          className="px-3 py-1 bg-white rounded-lg text-sm"
-                        >
-                          {condition}
-                        </span>
-                      ))}
+                            ? "bg-orange-200 text-orange-800"
+                            : "bg-blue-200 text-blue-800"
+                          }`}
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                      >
+                        {alert.severity}
+                      </span>
                     </div>
-                  </div>
 
-                  {/* Recommendations */}
-                  <div>
-                    <p
-                      className="text-xs text-gray-600 uppercase tracking-wider mb-3"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                    >
-                      Preparation & Recommendations
-                    </p>
-                    <div className="space-y-2">
-                      {alert.recommendations.map((rec, idx) => (
-                        <div key={idx} className="flex items-start gap-2 bg-white p-3 rounded-xl">
-                          <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                          <p className="text-sm text-gray-700">{rec}</p>
-                        </div>
-                      ))}
+                    {/* Alert Message */}
+                    <p className="text-gray-700 mb-4">{alert.message}</p>
+
+                    {/* Affected Conditions */}
+                    <div className="mb-4">
+                      <p
+                        className="text-xs text-gray-600 uppercase tracking-wider mb-2"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                      >
+                        Affected Conditions
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {alert.affectedConditions.map((condition, idx) => (
+                          <span
+                            key={idx}
+                            className="px-3 py-1 bg-white rounded-lg text-sm"
+                          >
+                            {condition}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              ))
+
+                    {/* Recommendations */}
+                    <div>
+                      <p
+                        className="text-xs text-gray-600 uppercase tracking-wider mb-3"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                      >
+                        Preparation & Recommendations
+                      </p>
+                      <div className="space-y-2">
+                        {alert.recommendations.map((rec, idx) => (
+                          <div key={idx} className="flex items-start gap-2 bg-white p-3 rounded-xl">
+                            <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                            <p className="text-sm text-gray-700">{rec}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
               )}
             </div>
           </div>
@@ -1309,21 +1354,21 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                   Account
                 </h3>
                 <div className="space-y-3">
-                  <button 
+                  <button
                     onClick={() => setShowChangePasswordModal(true)}
                     className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                   >
                     <Lock className="w-5 h-5 text-gray-600" />
                     <span>Change Password</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => setShowUpdateProfileModal(true)}
                     className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                   >
                     <Edit className="w-5 h-5 text-gray-600" />
                     <span>Update Profile</span>
                   </button>
-                  <button 
+                  <button
                     onClick={() => toast.info("Privacy settings feature coming soon")}
                     className="w-full flex items-center gap-3 text-left px-4 py-3 bg-white rounded-xl hover:bg-gray-100 transition-colors text-sm"
                   >
@@ -1357,9 +1402,8 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                         setDarkMode(!darkMode);
                         toast.success(darkMode ? "Light mode enabled" : "Dark mode enabled");
                       }}
-                      className={`relative w-12 h-6 rounded-full transition-colors ${
-                        darkMode ? "bg-black" : "bg-gray-300"
-                      }`}
+                      className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? "bg-black" : "bg-gray-300"
+                        }`}
                     >
                       <motion.div
                         animate={{ x: darkMode ? 24 : 0 }}
@@ -1560,7 +1604,7 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                                 if (!confirm('Are you sure you want to delete this record?')) {
                                   return;
                                 }
-                                
+
                                 try {
                                   await deleteDoctorMedicalRecord(record.id);
                                   setDoctorMedicalRecords(doctorMedicalRecords.filter(r => r.id !== record.id));
@@ -1653,11 +1697,10 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
                 </button>
                 <button
                   onClick={submitAppointmentResponse}
-                  className={`flex-1 px-4 py-3 rounded-xl transition-colors uppercase tracking-wider text-sm text-white ${
-                    responseType === "accept"
-                      ? "bg-green-500 hover:bg-green-600"
-                      : "bg-red-500 hover:bg-red-600"
-                  }`}
+                  className={`flex-1 px-4 py-3 rounded-xl transition-colors uppercase tracking-wider text-sm text-white ${responseType === "accept"
+                    ? "bg-green-500 hover:bg-green-600"
+                    : "bg-red-500 hover:bg-red-600"
+                    }`}
                   style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
                 >
                   Confirm
@@ -1689,489 +1732,480 @@ export function DoctorDashboard({ onLogout }: DoctorDashboardProps) {
               className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
             >
               <div className="p-4 md:p-6">
-              {isLoadingPatientHistory ? (
-                <div className="text-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-3"></div>
-                  <p className="text-gray-500">Loading patient history...</p>
-                </div>
-              ) : selectedPatient ? (
-                <>
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3
-                    className="text-2xl uppercase tracking-wide mb-1"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                  >
-                    {selectedPatient.name}
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    {selectedPatient.age} years • {selectedPatient.gender} • {selectedPatient.bloodGroup}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setShowPatientHistory(false)}
-                  className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+                {isLoadingPatientHistory ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                    <p className="text-gray-500">Loading patient history...</p>
+                  </div>
+                ) : selectedPatient ? (
+                  <>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <h3
+                          className="text-2xl uppercase tracking-wide mb-1"
+                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                        >
+                          {selectedPatient.name}
+                        </h3>
+                        <p className="text-sm text-gray-600">
+                          {selectedPatient.age} years • {selectedPatient.gender} • {selectedPatient.bloodGroup}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowPatientHistory(false)}
+                        className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
 
-              {/* Contact Info */}
-              <div className="grid md:grid-cols-2 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Phone</p>
-                  <p className="text-sm text-gray-800">{selectedPatient.phone}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Last Visit</p>
-                  <p className="text-sm text-gray-800">{selectedPatient.lastVisit}</p>
-                </div>
-                <div className="md:col-span-2">
-                  <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Address</p>
-                  <p className="text-sm text-gray-800">{selectedPatient.address}</p>
-                </div>
-              </div>
+                    {/* Contact Info */}
+                    <div className="grid md:grid-cols-2 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Phone</p>
+                        <p className="text-sm text-gray-800">{selectedPatient.phone}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Last Visit</p>
+                        <p className="text-sm text-gray-800">{selectedPatient.lastVisit}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Address</p>
+                        <p className="text-sm text-gray-800">{selectedPatient.address}</p>
+                      </div>
+                    </div>
 
-              {/* Quick Stats Summary */}
-              <div className="grid grid-cols-3 gap-3 mb-6">
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Folder className="w-4 h-4 text-blue-600" />
-                    <span className="text-xs text-blue-600 uppercase tracking-wider">Documents</span>
-                  </div>
-                  <p className="text-2xl text-blue-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
-                    {selectedPatient.medicalRecords?.length || 0}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl">
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileText className="w-4 h-4 text-green-600" />
-                    <span className="text-xs text-green-600 uppercase tracking-wider">Prescriptions</span>
-                  </div>
-                  <p className="text-2xl text-green-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
-                    {selectedPatient.prescriptions?.length || 0}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Activity className="w-4 h-4 text-purple-600" />
-                    <span className="text-xs text-purple-600 uppercase tracking-wider">Predictions</span>
-                  </div>
-                  <p className="text-2xl text-purple-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
-                    {selectedPatient.predictions?.length || 0}
-                  </p>
-                </div>
-              </div>
-
-              {/* Current Vitals */}
-              <div className="mb-6">
-                <h4
-                  className="text-lg mb-3 uppercase tracking-wide"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                >
-                  Current Vitals
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="bg-red-50 p-4 rounded-xl">
-                    <Heart className="w-5 h-5 text-red-600 mb-2" />
-                    <p className="text-xs text-gray-600 mb-1">Heart Rate</p>
-                    <p
-                      className="text-lg"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                    >
-                      {selectedPatient.vitals.heartRate}
-                    </p>
-                  </div>
-                  <div className="bg-blue-50 p-4 rounded-xl">
-                    <Activity className="w-5 h-5 text-blue-600 mb-2" />
-                    <p className="text-xs text-gray-600 mb-1">BP</p>
-                    <p
-                      className="text-lg"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                    >
-                      {selectedPatient.vitals.bloodPressure}
-                    </p>
-                  </div>
-                  <div className="bg-orange-50 p-4 rounded-xl">
-                    <Thermometer className="w-5 h-5 text-orange-600 mb-2" />
-                    <p className="text-xs text-gray-600 mb-1">Temperature</p>
-                    <p
-                      className="text-lg"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                    >
-                      {selectedPatient.vitals.temperature}
-                    </p>
-                  </div>
-                  <div className="bg-purple-50 p-4 rounded-xl">
-                    <TrendingUp className="w-5 h-5 text-purple-600 mb-2" />
-                    <p className="text-xs text-gray-600 mb-1">Weight</p>
-                    <p
-                      className="text-lg"
-                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                    >
-                      {selectedPatient.vitals.weight}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Medicine Adherence - Last 30 Days */}
-              <div className="mb-6">
-                <h4
-                  className="text-lg mb-3 uppercase tracking-wide"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                >
-                  Medicine Adherence (Last 30 Days)
-                </h4>
-                <div className="space-y-3">
-                  {selectedPatient.medicines.map((med, idx) => (
-                    <div key={idx} className="bg-gray-50 p-4 rounded-xl">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-1">
-                            <Pill className="w-5 h-5 text-gray-600" />
-                            <h5
-                              className="uppercase tracking-wide"
-                              style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                            >
-                              {med.name}
-                            </h5>
-                          </div>
-                          <p className="text-sm text-gray-600">
-                            {med.dosage} • {med.frequency}
-                          </p>
+                    {/* Quick Stats Summary */}
+                    <div className="grid grid-cols-3 gap-3 mb-6">
+                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Folder className="w-4 h-4 text-blue-600" />
+                          <span className="text-xs text-blue-600 uppercase tracking-wider">Documents</span>
                         </div>
-                        <div className="text-right">
+                        <p className="text-2xl text-blue-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                          {selectedPatient.medicalRecords?.length || 0}
+                        </p>
+                      </div>
+                      <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="w-4 h-4 text-green-600" />
+                          <span className="text-xs text-green-600 uppercase tracking-wider">Prescriptions</span>
+                        </div>
+                        <p className="text-2xl text-green-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                          {selectedPatient.prescriptions?.length || 0}
+                        </p>
+                      </div>
+                      <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Activity className="w-4 h-4 text-purple-600" />
+                          <span className="text-xs text-purple-600 uppercase tracking-wider">Predictions</span>
+                        </div>
+                        <p className="text-2xl text-purple-900" style={{ fontFamily: "'Doto', sans-serif", fontWeight: "785" }}>
+                          {selectedPatient.predictions?.length || 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Current Vitals */}
+                    <div className="mb-6">
+                      <h4
+                        className="text-lg mb-3 uppercase tracking-wide"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                      >
+                        Current Vitals
+                      </h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-red-50 p-4 rounded-xl">
+                          <Heart className="w-5 h-5 text-red-600 mb-2" />
+                          <p className="text-xs text-gray-600 mb-1">Heart Rate</p>
                           <p
-                            className={`text-2xl ${
-                              med.adherence >= 90
-                                ? "text-green-600"
-                                : med.adherence >= 70
-                                ? "text-yellow-600"
-                                : "text-red-600"
-                            }`}
+                            className="text-lg"
                             style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                           >
-                            {med.adherence}%
+                            {selectedPatient.vitals.heartRate}
                           </p>
-                          <p className="text-xs text-gray-500">Adherence</p>
                         </div>
-                      </div>
-
-                      {/* Adherence Progress Bar */}
-                      <div className="mb-3">
-                        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${
-                              med.adherence >= 90
-                                ? "bg-green-500"
-                                : med.adherence >= 70
-                                ? "bg-yellow-500"
-                                : "bg-red-500"
-                            }`}
-                            style={{ width: `${med.adherence}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                            Last Taken
+                        <div className="bg-blue-50 p-4 rounded-xl">
+                          <Activity className="w-5 h-5 text-blue-600 mb-2" />
+                          <p className="text-xs text-gray-600 mb-1">BP</p>
+                          <p
+                            className="text-lg"
+                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                          >
+                            {selectedPatient.vitals.bloodPressure}
                           </p>
-                          <p className="text-gray-800">{med.lastTaken}</p>
                         </div>
-                        <div>
-                          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                            Missed Doses
+                        <div className="bg-orange-50 p-4 rounded-xl">
+                          <Thermometer className="w-5 h-5 text-orange-600 mb-2" />
+                          <p className="text-xs text-gray-600 mb-1">Temperature</p>
+                          <p
+                            className="text-lg"
+                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                          >
+                            {selectedPatient.vitals.temperature}
                           </p>
-                          <p className="text-gray-800">{med.missedDoses} doses</p>
+                        </div>
+                        <div className="bg-purple-50 p-4 rounded-xl">
+                          <TrendingUp className="w-5 h-5 text-purple-600 mb-2" />
+                          <p className="text-xs text-gray-600 mb-1">Weight</p>
+                          <p
+                            className="text-lg"
+                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                          >
+                            {selectedPatient.vitals.weight}
+                          </p>
                         </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
 
-              {/* Health Predictions */}
-              {selectedPatient.predictions && selectedPatient.predictions.length > 0 && (
-                <div className="mb-6">
-                  <h4
-                    className="text-lg mb-3 uppercase tracking-wide"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                  >
-                    Disease Risk Predictions
-                  </h4>
-                  <div className="space-y-3">
-                    {selectedPatient.predictions.map((prediction: any) => (
-                      <div
-                        key={prediction.id}
-                        className={`p-4 rounded-xl border-2 ${
-                          prediction.risk === "high"
-                            ? "bg-red-50 border-red-200"
-                            : prediction.risk === "medium"
-                            ? "bg-yellow-50 border-yellow-200"
-                            : "bg-green-50 border-green-200"
-                        }`}
+                    {/* Medicine Adherence - Last 30 Days */}
+                    <div className="mb-6">
+                      <h4
+                        className="text-lg mb-3 uppercase tracking-wide"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
                       >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            {prediction.type === "heart" && (
-                              <Heart
-                                className={`w-6 h-6 ${
-                                  prediction.risk === "high"
-                                    ? "text-red-600"
-                                    : prediction.risk === "medium"
-                                    ? "text-yellow-600"
-                                    : "text-green-600"
-                                }`}
-                              />
-                            )}
-                            {prediction.type === "diabetes" && (
-                              <Droplet
-                                className={`w-6 h-6 ${
-                                  prediction.risk === "high"
-                                    ? "text-red-600"
-                                    : prediction.risk === "medium"
-                                    ? "text-yellow-600"
-                                    : "text-green-600"
-                                }`}
-                              />
-                            )}
-                            {prediction.type === "kidney" && (
-                              <Activity
-                                className={`w-6 h-6 ${
-                                  prediction.risk === "high"
-                                    ? "text-red-600"
-                                    : prediction.risk === "medium"
-                                    ? "text-yellow-600"
-                                    : "text-green-600"
-                                }`}
-                              />
-                            )}
-                            {prediction.type === "sepsis" && (
-                              <AlertCircle
-                                className={`w-6 h-6 ${
-                                  prediction.risk === "high"
-                                    ? "text-red-600"
-                                    : prediction.risk === "medium"
-                                    ? "text-yellow-600"
-                                    : "text-green-600"
-                                }`}
-                              />
-                            )}
-                            <div>
-                              <h5
-                                className="uppercase tracking-wide capitalize"
-                                style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                              >
-                                {prediction.type === "heart"
-                                  ? "Heart Disease"
-                                  : prediction.type === "kidney"
-                                  ? "Chronic Kidney Disease"
-                                  : prediction.type}
-                              </h5>
-                              <p className="text-xs text-gray-500">
-                                {new Date(prediction.date).toLocaleDateString("en-US", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                          <span
-                            className={`px-3 py-1 rounded-lg text-xs uppercase ${
-                              prediction.risk === "high"
-                                ? "bg-red-600 text-white"
-                                : prediction.risk === "medium"
-                                ? "bg-yellow-600 text-white"
-                                : "bg-green-600 text-white"
-                            }`}
-                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                          >
-                            {prediction.risk} Risk
-                          </span>
-                        </div>
-
-                        <div className="mb-3">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs text-gray-600 uppercase tracking-wider">
-                              Probability
-                            </span>
-                            <span className="text-sm font-semibold">{prediction.probability}%</span>
-                          </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
-                            <div
-                              className={`h-2 rounded-full ${
-                                prediction.risk === "high"
-                                  ? "bg-red-600"
-                                  : prediction.risk === "medium"
-                                  ? "bg-yellow-600"
-                                  : "bg-green-600"
-                              }`}
-                              style={{ width: `${prediction.probability}%` }}
-                            ></div>
-                          </div>
-                        </div>
-
-                        <div className="bg-white rounded-lg p-3 mb-3">
-                          <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                            Recommendation
-                          </p>
-                          <p className="text-sm text-gray-700">{prediction.recommendation}</p>
-                        </div>
-
-                        <details className="group">
-                          <summary className="cursor-pointer text-xs text-gray-600 hover:text-black transition-colors uppercase tracking-wider">
-                            View Input Parameters
-                          </summary>
-                          <div className="mt-2 bg-white rounded-lg p-3 grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {Object.entries(prediction.inputs).map(([key, value]: [string, any]) => (
-                              <div key={key} className="text-xs">
-                                <span className="text-gray-500 capitalize block">
-                                  {key.replace(/([A-Z])/g, " $1").trim()}
-                                </span>
-                                <span className="font-medium">{value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Medical Records */}
-              {selectedPatient.medicalRecords && selectedPatient.medicalRecords.length > 0 && (
-                <div className="mb-6">
-                  <h4
-                    className="text-lg mb-3 uppercase tracking-wide"
-                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                  >
-                    Medical Records & Documents
-                  </h4>
-                  <div className="space-y-3">
-                    {selectedPatient.medicalRecords.map((record: MedicalRecord) => {
-                      const typeIcons: Record<string, any> = {
-                        prescription: Pill,
-                        report: FileText,
-                        xray: ScanLine,
-                        "ct-scan": ScanLine,
-                        mri: ScanLine,
-                        "lab-result": Activity,
-                        other: FileText
-                      };
-                      const TypeIcon = typeIcons[record.type] || FileText;
-
-                      const typeColors: Record<string, string> = {
-                        prescription: "bg-blue-50 border-blue-200",
-                        report: "bg-green-50 border-green-200",
-                        xray: "bg-purple-50 border-purple-200",
-                        "ct-scan": "bg-purple-50 border-purple-200",
-                        mri: "bg-indigo-50 border-indigo-200",
-                        "lab-result": "bg-rose-50 border-rose-200",
-                        other: "bg-gray-50 border-gray-200"
-                      };
-
-                      return (
-                        <div
-                          key={record.id}
-                          className={`p-4 rounded-xl border-2 ${typeColors[record.type]}`}
-                        >
-                          <div className="flex items-start gap-3 mb-3">
-                            <TypeIcon className="w-5 h-5 text-gray-600 flex-shrink-0 mt-1" />
-                            <div className="flex-1 min-w-0">
-                              <h5
-                                className="uppercase tracking-wide mb-1"
-                                style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                              >
-                                {record.type.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
-                              </h5>
-                              <p className="text-xs text-gray-500 mb-2">
-                                {record.fileName} • {new Date(record.uploadDate).toLocaleDateString()}
-                              </p>
-                              
-                              {/* AI Summary */}
-                              {record.summary && (
-                                <div className="bg-white rounded-lg p-3">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"></div>
-                                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                                      AI Analysis
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-gray-700 leading-relaxed">{record.summary}</p>
+                        Medicine Adherence (Last 30 Days)
+                      </h4>
+                      <div className="space-y-3">
+                        {selectedPatient.medicines.map((med, idx) => (
+                          <div key={idx} className="bg-gray-50 p-4 rounded-xl">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-1">
+                                  <Pill className="w-5 h-5 text-gray-600" />
+                                  <h5
+                                    className="uppercase tracking-wide"
+                                    style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                  >
+                                    {med.name}
+                                  </h5>
                                 </div>
-                              )}
+                                <p className="text-sm text-gray-600">
+                                  {med.dosage} • {med.frequency}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p
+                                  className={`text-2xl ${med.adherence >= 90
+                                    ? "text-green-600"
+                                    : med.adherence >= 70
+                                      ? "text-yellow-600"
+                                      : "text-red-600"
+                                    }`}
+                                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                >
+                                  {med.adherence}%
+                                </p>
+                                <p className="text-xs text-gray-500">Adherence</p>
+                              </div>
+                            </div>
+
+                            {/* Adherence Progress Bar */}
+                            <div className="mb-3">
+                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${med.adherence >= 90
+                                    ? "bg-green-500"
+                                    : med.adherence >= 70
+                                      ? "bg-yellow-500"
+                                      : "bg-red-500"
+                                    }`}
+                                  style={{ width: `${med.adherence}%` }}
+                                ></div>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                                  Last Taken
+                                </p>
+                                <p className="text-gray-800">{med.lastTaken}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                                  Missed Doses
+                                </p>
+                                <p className="text-gray-800">{med.missedDoses} doses</p>
+                              </div>
                             </div>
                           </div>
-                          
-                          <button
-                            onClick={() => window.open(record.fileUrl, '_blank')}
-                            className="w-full mt-2 px-4 py-2 text-sm bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
-                            style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
-                          >
-                            View Document
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Previous Prescriptions */}
-              <div>
-                <h4
-                  className="text-lg mb-3 uppercase tracking-wide"
-                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
-                >
-                  Previous Prescriptions
-                </h4>
-                <div className="space-y-3">
-                  {selectedPatient.prescriptions.map((rx) => (
-                    <div key={rx.id} className="bg-gray-50 p-4 rounded-xl">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-5 h-5 text-gray-600" />
-                          <span className="text-sm text-gray-600">{rx.date}</span>
-                        </div>
-                        <span className="text-xs text-gray-500 uppercase tracking-wider">
-                          {rx.id}
-                        </span>
-                      </div>
-                      <p className="text-sm mb-2">
-                        <span className="text-xs text-gray-500 uppercase tracking-wider">
-                          Diagnosis:{" "}
-                        </span>
-                        <span className="text-gray-800">{rx.diagnosis}</span>
-                      </p>
-                      <div className="flex flex-wrap gap-2">
-                        {rx.medicines.map((medicine, idx) => (
-                          <span
-                            key={idx}
-                            className="px-3 py-1 bg-white rounded-lg text-sm text-gray-700"
-                          >
-                            {medicine}
-                          </span>
                         ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-              </>
-              ) : (
-                <div className="text-center py-12">
-                  <AlertCircle className="w-12 h-12 text-red-300 mx-auto mb-3" />
-                  <p className="text-red-500">Failed to load patient history</p>
-                </div>
-              )}
+
+                    {/* Health Predictions */}
+                    {selectedPatient.predictions && selectedPatient.predictions.length > 0 && (
+                      <div className="mb-6">
+                        <h4
+                          className="text-lg mb-3 uppercase tracking-wide"
+                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                        >
+                          Disease Risk Predictions
+                        </h4>
+                        <div className="space-y-3">
+                          {selectedPatient.predictions.map((prediction: any) => (
+                            <div
+                              key={prediction.id}
+                              className={`p-4 rounded-xl border-2 ${prediction.risk === "high"
+                                ? "bg-red-50 border-red-200"
+                                : prediction.risk === "medium"
+                                  ? "bg-yellow-50 border-yellow-200"
+                                  : "bg-green-50 border-green-200"
+                                }`}
+                            >
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex items-center gap-3">
+                                  {prediction.type === "heart" && (
+                                    <Heart
+                                      className={`w-6 h-6 ${prediction.risk === "high"
+                                        ? "text-red-600"
+                                        : prediction.risk === "medium"
+                                          ? "text-yellow-600"
+                                          : "text-green-600"
+                                        }`}
+                                    />
+                                  )}
+                                  {prediction.type === "diabetes" && (
+                                    <Droplet
+                                      className={`w-6 h-6 ${prediction.risk === "high"
+                                        ? "text-red-600"
+                                        : prediction.risk === "medium"
+                                          ? "text-yellow-600"
+                                          : "text-green-600"
+                                        }`}
+                                    />
+                                  )}
+                                  {prediction.type === "kidney" && (
+                                    <Activity
+                                      className={`w-6 h-6 ${prediction.risk === "high"
+                                        ? "text-red-600"
+                                        : prediction.risk === "medium"
+                                          ? "text-yellow-600"
+                                          : "text-green-600"
+                                        }`}
+                                    />
+                                  )}
+                                  {prediction.type === "sepsis" && (
+                                    <AlertCircle
+                                      className={`w-6 h-6 ${prediction.risk === "high"
+                                        ? "text-red-600"
+                                        : prediction.risk === "medium"
+                                          ? "text-yellow-600"
+                                          : "text-green-600"
+                                        }`}
+                                    />
+                                  )}
+                                  <div>
+                                    <h5
+                                      className="uppercase tracking-wide capitalize"
+                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                    >
+                                      {prediction.type === "heart"
+                                        ? "Heart Disease"
+                                        : prediction.type === "kidney"
+                                          ? "Chronic Kidney Disease"
+                                          : prediction.type}
+                                    </h5>
+                                    <p className="text-xs text-gray-500">
+                                      {new Date(prediction.date).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span
+                                  className={`px-3 py-1 rounded-lg text-xs uppercase ${prediction.risk === "high"
+                                    ? "bg-red-600 text-white"
+                                    : prediction.risk === "medium"
+                                      ? "bg-yellow-600 text-white"
+                                      : "bg-green-600 text-white"
+                                    }`}
+                                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                >
+                                  {prediction.risk} Risk
+                                </span>
+                              </div>
+
+                              <div className="mb-3">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-xs text-gray-600 uppercase tracking-wider">
+                                    Probability
+                                  </span>
+                                  <span className="text-sm font-semibold">{prediction.probability}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${prediction.risk === "high"
+                                      ? "bg-red-600"
+                                      : prediction.risk === "medium"
+                                        ? "bg-yellow-600"
+                                        : "bg-green-600"
+                                      }`}
+                                    style={{ width: `${prediction.probability}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+
+                              <div className="bg-white rounded-lg p-3 mb-3">
+                                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                                  Recommendation
+                                </p>
+                                <p className="text-sm text-gray-700">{prediction.recommendation}</p>
+                              </div>
+
+                              <details className="group">
+                                <summary className="cursor-pointer text-xs text-gray-600 hover:text-black transition-colors uppercase tracking-wider">
+                                  View Input Parameters
+                                </summary>
+                                <div className="mt-2 bg-white rounded-lg p-3 grid grid-cols-2 md:grid-cols-3 gap-2">
+                                  {Object.entries(prediction.inputs).map(([key, value]: [string, any]) => (
+                                    <div key={key} className="text-xs">
+                                      <span className="text-gray-500 capitalize block">
+                                        {key.replace(/([A-Z])/g, " $1").trim()}
+                                      </span>
+                                      <span className="font-medium">{value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Medical Records */}
+                    {selectedPatient.medicalRecords && selectedPatient.medicalRecords.length > 0 && (
+                      <div className="mb-6">
+                        <h4
+                          className="text-lg mb-3 uppercase tracking-wide"
+                          style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                        >
+                          Medical Records & Documents
+                        </h4>
+                        <div className="space-y-3">
+                          {selectedPatient.medicalRecords.map((record: MedicalRecord) => {
+                            const typeIcons: Record<string, any> = {
+                              prescription: Pill,
+                              report: FileText,
+                              xray: ScanLine,
+                              "ct-scan": ScanLine,
+                              mri: ScanLine,
+                              "lab-result": Activity,
+                              other: FileText
+                            };
+                            const TypeIcon = typeIcons[record.type] || FileText;
+
+                            const typeColors: Record<string, string> = {
+                              prescription: "bg-blue-50 border-blue-200",
+                              report: "bg-green-50 border-green-200",
+                              xray: "bg-purple-50 border-purple-200",
+                              "ct-scan": "bg-purple-50 border-purple-200",
+                              mri: "bg-indigo-50 border-indigo-200",
+                              "lab-result": "bg-rose-50 border-rose-200",
+                              other: "bg-gray-50 border-gray-200"
+                            };
+
+                            return (
+                              <div
+                                key={record.id}
+                                className={`p-4 rounded-xl border-2 ${typeColors[record.type]}`}
+                              >
+                                <div className="flex items-start gap-3 mb-3">
+                                  <TypeIcon className="w-5 h-5 text-gray-600 flex-shrink-0 mt-1" />
+                                  <div className="flex-1 min-w-0">
+                                    <h5
+                                      className="uppercase tracking-wide mb-1"
+                                      style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                                    >
+                                      {record.type.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                                    </h5>
+                                    <p className="text-xs text-gray-500 mb-2">
+                                      {record.fileName} • {new Date(record.uploadDate).toLocaleDateString()}
+                                    </p>
+
+                                    {/* AI Summary */}
+                                    {record.summary && (
+                                      <div className="bg-white rounded-lg p-3">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <div className="w-2 h-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"></div>
+                                          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                                            AI Analysis
+                                          </span>
+                                        </div>
+                                        <p className="text-sm text-gray-700 leading-relaxed">{record.summary}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => window.open(record.fileUrl, '_blank')}
+                                  className="w-full mt-2 px-4 py-2 text-sm bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                                  style={{ fontFamily: "'Doto', sans-serif", fontWeight: "600" }}
+                                >
+                                  View Document
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Previous Prescriptions */}
+                    <div>
+                      <h4
+                        className="text-lg mb-3 uppercase tracking-wide"
+                        style={{ fontFamily: "'Doto', sans-serif", fontWeight: "700" }}
+                      >
+                        Previous Prescriptions
+                      </h4>
+                      <div className="space-y-3">
+                        {selectedPatient.prescriptions.map((rx) => (
+                          <div key={rx.id} className="bg-gray-50 p-4 rounded-xl">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <FileText className="w-5 h-5 text-gray-600" />
+                                <span className="text-sm text-gray-600">{rx.date}</span>
+                              </div>
+                              <span className="text-xs text-gray-500 uppercase tracking-wider">
+                                {rx.id}
+                              </span>
+                            </div>
+                            <p className="text-sm mb-2">
+                              <span className="text-xs text-gray-500 uppercase tracking-wider">
+                                Diagnosis:{" "}
+                              </span>
+                              <span className="text-gray-800">{rx.diagnosis}</span>
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {rx.medicines.map((medicine, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-3 py-1 bg-white rounded-lg text-sm text-gray-700"
+                                >
+                                  {medicine}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <AlertCircle className="w-12 h-12 text-red-300 mx-auto mb-3" />
+                    <p className="text-red-500">Failed to load patient history</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>

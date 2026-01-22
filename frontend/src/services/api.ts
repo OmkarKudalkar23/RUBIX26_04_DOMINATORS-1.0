@@ -3,6 +3,9 @@
 const API_BASE_URL = 'http://localhost:5000/api/patient';
 
 // Types matching backend models
+// Consolidated Staff Role for RBAC
+export type StaffRole = 'admin' | 'doctor' | 'admission_staff' | 'ward_nurse' | 'housekeeping' | 'reception';
+
 interface MedicineTaking {
   date: string;
   time: string;
@@ -778,6 +781,18 @@ export interface BedData {
     hasOxygen?: boolean;
     department?: string;
     isIsolation?: boolean;
+    // Reservation Fields
+    patientName?: string; // Internal
+    isExternalReservation?: boolean;
+    fromHospitalId?: string;
+    fromHospitalName?: string;
+    externalPatientName?: string;
+    externalPatientAge?: number;
+    externalPatientGender?: string;
+    externalPatientContact?: string;
+    externalPatientBloodGroup?: string;
+    externalPatientCondition?: string;
+    reservedAt?: string;
   }>;
 }
 
@@ -943,6 +958,7 @@ export interface SurgeAlert {
   department: string;
   expectedIncrease: number;
   recommendations: string[];
+  timestamp?: string;
 }
 
 export const getHospitalSurgeAlerts = async (): Promise<SurgeAlert[]> => {
@@ -1133,6 +1149,43 @@ export const getEarlyWarning = async (city: string, date?: string): Promise<Quic
   }
 };
 
+export interface MLPredictionResponse {
+  status: string;
+  city: string;
+  state: string;
+  aqi: number;
+  pm25: number;
+  expected_patients_next_24h: number;
+  surge_probability: number;
+  timestamp: string;
+  patient_dashboard: string;
+  doctor_dashboard: string;
+  hospital_dashboard: string;
+  recommended_actions: {
+    oxygen_cylinder_increase_percent: number;
+    emergency_beds_to_open: number;
+    staff_alert_required: boolean;
+    mask_advisory: boolean;
+  };
+}
+
+/**
+ * Get ML Prediction from local ML service
+ */
+export const getMLPrediction = async (city: string): Promise<MLPredictionResponse | null> => {
+  try {
+    const response = await fetch(`http://localhost:8000/predict/${city}`);
+    if (!response.ok) {
+      console.warn(`ML API unavailable: ${response.status}`);
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching ML prediction:', error);
+    return null;
+  }
+};
+
 /**
  * Get complete early warning analysis for a city
  */
@@ -1282,7 +1335,7 @@ export interface OpdCheckIn {
   doctorName?: string;
   doctorId?: string;
   visitType: "OPD" | "Follow-up";
-  status: "checked-in" | "in-triage" | "in-consult" | "completed" | "no-show";
+  status: "checked-in" | "in-triage" | "in-consult" | "completed" | "no-show" | "transferred-for-admission" | "observation";
   checkInTime: string;
   priority: "low" | "normal" | "high" | "critical";
   queueNumber: number; // 1-based index
@@ -1453,6 +1506,97 @@ export const updateBedRequest = async (
     };
   } catch (error) {
     console.error('Error updating bed request:', error);
+    throw error;
+  }
+};
+
+// ==================== CONSULTATION OUTCOMES & INTERNAL BED REQUESTS ====================
+
+export interface ConsultationOutcomeData {
+  outcome: 'completed' | 'observation' | 'admit';
+  admitData?: {
+    bedType: 'ICU' | 'General' | 'Private' | 'Emergency';
+    department: string;
+    urgencyLevel: 'routine' | 'urgent' | 'emergency';
+    reason: string;
+  };
+}
+
+export interface InternalBedRequest {
+  id: string;
+  opdCheckInId: string | null;
+  patientName: string;
+  department: string;
+  bedType: string;
+  urgencyLevel: 'routine' | 'urgent' | 'emergency';
+  reason: string;
+  requestedByName: string;
+  status: 'pending' | 'approved' | 'rejected' | 'allocated' | 'cancelled';
+  responseNotes: string;
+  createdAt: string;
+  opdDetails?: {
+    department: string;
+    visitType: string;
+    priority: string;
+    queueNumber: number;
+    checkInTime: string;
+  } | null;
+}
+
+// Submit consultation outcome (doctor action)
+export const submitConsultationOutcome = async (
+  opdId: string,
+  data: ConsultationOutcomeData
+): Promise<{
+  success: boolean;
+  outcome: string;
+  opdCheckIn: { id: string; patientName: string; status: string };
+  internalBedRequest: { id: string; status: string; bedType: string; urgencyLevel: string } | null;
+}> => {
+  try {
+    return await hospitalApiRequest(`/opd/${opdId}/consultation-outcome`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  } catch (error) {
+    console.error('Error submitting consultation outcome:', error);
+    throw error;
+  }
+};
+
+// Get internal bed requests (for admission staff)
+export const getInternalBedRequests = async (status?: string): Promise<InternalBedRequest[]> => {
+  try {
+    const endpoint = status ? `/internal-bed-requests?status=${status}` : '/internal-bed-requests';
+    return await hospitalApiRequest(endpoint);
+  } catch (error) {
+    console.error('Error fetching internal bed requests:', error);
+    throw error;
+  }
+};
+
+// Get pending internal bed request count
+export const getInternalBedRequestCount = async (): Promise<{ pendingCount: number }> => {
+  try {
+    return await hospitalApiRequest('/internal-bed-requests/count');
+  } catch (error) {
+    console.error('Error fetching internal bed request count:', error);
+    return { pendingCount: 0 };
+  }
+};
+
+// Update internal bed request (admission staff action)
+export const updateInternalBedRequest = async (
+  id: string,
+  updates: { status?: 'approved' | 'rejected' | 'cancelled'; responseNotes?: string }
+): Promise<{ id: string; status: string; responseNotes: string; admissionId: string | null }> => {
+  try {
+    return await hospitalApiRequest(`/internal-bed-requests/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates)
+    });
+  } catch (error) {
+    console.error('Error updating internal bed request:', error);
     throw error;
   }
 };

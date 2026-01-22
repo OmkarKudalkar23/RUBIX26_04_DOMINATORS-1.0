@@ -73,7 +73,7 @@ router.get('/cities', async (req, res) => {
 router.post('/early-warning', async (req, res) => {
   try {
     const { city, date } = req.body;
-    
+
     if (!city) {
       return res.status(400).json({ error: 'City is required' });
     }
@@ -82,7 +82,7 @@ router.post('/early-warning', async (req, res) => {
       city: city,
       date: date || null
     });
-    
+
     res.json(response.data);
   } catch (error) {
     console.error('Error getting early warning:', error.message);
