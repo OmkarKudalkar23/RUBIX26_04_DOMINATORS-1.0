@@ -1645,7 +1645,7 @@ export function HospitalDashboard({ onLogout }: HospitalDashboardProps) {
                 <div className="sticky top-20 z-20 bg-gray-50/95 backdrop-blur-sm py-4 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-gray-200 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 transition-all shadow-sm">
                   <div>
                     <h2
-                      className="text-2xl md:text-3xl uppercase tracking-wide text-gray-900"
+                      className="text-2xl md:text-2xl uppercase tracking-wide text-gray-900"
                       style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: "800" }}
                     >
                       {t.bedManagement}
